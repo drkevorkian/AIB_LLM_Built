@@ -235,6 +235,13 @@ export function AgentSettings({
           request and the participant roles. It may incur provider charges and does not consume a
           room turn.
         </p>
+        <p className="muted">
+          Test coordinator checks the structured finish decision needed for Agent discussion. It
+          sends a test request and participant roles, with no thread history or shared objective.
+          Each test makes one request, may incur provider charges, and is limited to 30 seconds or
+          the saved timeout if shorter. Simulation checks only the local fixture. Results apply to
+          the tested configuration at that time; they do not guarantee later discussions.
+        </p>
         {error && (
           <p className="form-error" role="alert">
             {error}
@@ -266,6 +273,26 @@ export function AgentSettings({
             }}
           >
             Test connection
+          </button>
+          <button
+            type="button"
+            disabled={
+              busy ||
+              pending ||
+              !saved ||
+              !room.agents.some((a) => a.id === agent.id && isAgentActive(a)) ||
+              (!provider?.configured && value.provider !== 'openai-compatible')
+            }
+            onClick={() => {
+              void action(async () => {
+                const checked = await api.testConnection(room.id, agent.id, 'coordinator');
+                setResult(
+                  `${checked.provider === 'simulated' ? 'Simulated coordinator check passed' : 'Coordinator check passed'}: ${checked.provider} / ${checked.model} · configuration ${checked.configRevision}. Checked ${checked.testedAt}. Valid completed finish decision received.`,
+                );
+              });
+            }}
+          >
+            Test coordinator
           </button>
         </div>
       </fieldset>

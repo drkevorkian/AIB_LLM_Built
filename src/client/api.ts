@@ -9,6 +9,8 @@ import type {
   AppSettings,
   WorkspaceSettingsInput,
   AddAgentInput,
+  ConnectionTestKind,
+  ConnectionTestResult,
 } from '../shared/contracts.js';
 
 let tokenPromise: Promise<string> | null = null;
@@ -105,13 +107,13 @@ export const api = {
         body: JSON.stringify({ active }),
       })
     ).json() as Promise<Room>,
-  testConnection: async (id: string, agentId: string) =>
+  testConnection: async (id: string, agentId: string, kind: ConnectionTestKind = 'greeting') =>
     (
       await request(`/rooms/${id}/connection-test`, {
         method: 'POST',
-        body: JSON.stringify({ agentId }),
+        body: JSON.stringify({ agentId, kind }),
       })
-    ).json() as Promise<{ reply: string }>,
+    ).json() as Promise<ConnectionTestResult>,
   list: async (signal?: AbortSignal) =>
     (await request('/rooms', { signal })).json() as Promise<RoomSummary[]>,
   room: async (id: string, signal?: AbortSignal) =>

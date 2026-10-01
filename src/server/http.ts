@@ -246,11 +246,8 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         return;
       }
       if (match[2] === 'connection-test' && req.method === 'POST') {
-        json(
-          res,
-          200,
-          await engine.testConnection(roomId, connectionTestSchema.parse(await body(req)).agentId),
-        );
+        const input = connectionTestSchema.parse(await body(req));
+        json(res, 200, await engine.testConnection(roomId, input.agentId, input.kind));
         return;
       }
       if (match[2] === 'messages' && req.method === 'POST') {

@@ -1649,6 +1649,9 @@ test('archive confirmation retains history and drafts, disables work, supports e
   await expect(
     settings.getByRole('button', { name: 'Test connection', exact: true }),
   ).toBeDisabled();
+  await expect(
+    settings.getByRole('button', { name: 'Test coordinator', exact: true }),
+  ).toBeDisabled();
   await settings.getByRole('button', { name: 'Close dialog' }).click();
   await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
   await expect(page.getByLabel('Message', { exact: true })).toHaveValue('Archive draft stays here');

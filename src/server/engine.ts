@@ -20,6 +20,8 @@ import type {
   AgentActivationInput,
   WorkspaceArchiveInput,
   ThreadSettingsInput,
+  ConnectionTestKind,
+  ConnectionTestResult,
 } from '../shared/contracts.js';
 import {
   agentActionSchema,
@@ -35,6 +37,7 @@ import {
   maxParticipants,
   workspaceArchiveSchema,
   threadSettingsSchema,
+  connectionTestSchema,
 } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
@@ -431,7 +434,12 @@ export class ConversationEngine extends EventEmitter {
     });
   }
 
-  async testConnection(roomId: string, agentId: string): Promise<{ reply: string }> {
+  async testConnection(
+    roomId: string,
+    agentId: string,
+    kind: ConnectionTestKind = 'greeting',
+  ): Promise<ConnectionTestResult> {
+    connectionTestSchema.parse({ agentId, kind });
     if (this.closed) throw new AppError(409, 'Service is shutting down.');
     const room = this.store.get(roomId);
     this.assertWorkspaceOpen(room);
@@ -448,19 +456,45 @@ export class ConversationEngine extends EventEmitter {
     const abort = new AbortController();
     this.connectionChecks.set(agentId, abort);
     const snapshot = this.snapshot({ ...room, objective: '' }, []);
-    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(30000)]);
+    const signal = AbortSignal.any([
+      abort.signal,
+      AbortSignal.timeout(Math.min(agent.timeoutSeconds ?? 180, 30) * 1000),
+    ]);
     let text = '';
+    let action: unknown;
+    let actionCount = 0;
+    const result = (reply: string): ConnectionTestResult => ({
+      kind,
+      reply,
+      provider: agent.provider,
+      model: agent.model,
+      configRevision: agent.configRevision ?? 0,
+      testedAt: this.timestamp(),
+    });
     try {
       for await (const event of this.provider.generate(
         {
           agent,
           snapshot,
           prompt:
-            'Reply with a short greeting identifying your participant name. This is a connection test.',
-          kind: 'answer',
+            kind === 'coordinator'
+              ? 'This is a coordinator capability test, not a conversation. Return one finish action with a short greeting in body, recipientIds [], policy all, quorum 1, and replyTo null. Do not ask peers or add fields.'
+              : 'Reply with a short greeting identifying your participant name. This is a connection test.',
+          kind: kind === 'coordinator' ? 'decision' : 'answer',
           includedAnswers: [],
           expectedRespondents: [],
           missingRespondents: [],
+          ...(kind === 'coordinator'
+            ? {
+                discussion: {
+                  id: snapshot.id,
+                  allowedPeerIds: [],
+                  roundsUsed: 0,
+                  maxRounds: 1,
+                  turnsRemaining: 1,
+                },
+              }
+            : {}),
         },
         signal,
       )) {
@@ -468,14 +502,48 @@ export class ConversationEngine extends EventEmitter {
         if (event.type === 'refused')
           throw new ProviderRefusal('Provider refused the connection test.');
         if (event.type === 'delta') {
+          if (kind === 'coordinator')
+            throw new AgentActionError(
+              'Coordinator check requires a structured finish action, not plain text.',
+            );
           text += event.text;
-          if (text.length > 20000) throw new Error('Connection test output exceeds the limit.');
+          if (text.length > 20000)
+            throw new ProviderError('Connection test output exceeds the limit.');
         }
-        if (event.type === 'complete' && text.trim()) return { reply: text.slice(0, 300) };
+        if (event.type === 'action' && kind === 'coordinator') {
+          if (++actionCount > 1)
+            throw new AgentActionError('Coordinator check requires exactly one finish action.');
+          action = event.action;
+        }
+        if (event.type === 'complete' && kind === 'coordinator') {
+          const parsed = agentActionSchema.safeParse(action);
+          if (
+            !parsed.success ||
+            parsed.data.kind !== 'finish' ||
+            parsed.data.recipientIds.length ||
+            parsed.data.policy !== 'all' ||
+            parsed.data.quorum !== 1 ||
+            parsed.data.replyTo !== null
+          )
+            throw new AgentActionError(
+              'Coordinator check requires a valid finish action: a nonempty body, recipientIds [], policy all, quorum 1, replyTo null, and no extra fields.',
+            );
+          return result(parsed.data.body.slice(0, 300));
+        }
+        if (event.type === 'complete' && text.trim()) return result(text.slice(0, 300));
       }
-      throw new Error('Connection test did not produce a completed answer.');
+      throw new ProviderError('Connection test did not produce a completed answer.');
     } catch (error) {
-      throw new AppError(400, error instanceof Error ? error.message : 'Connection test failed.');
+      const message = signal.aborted
+        ? signal.reason?.name === 'TimeoutError'
+          ? 'Connection test timed out. Retry explicitly after checking the model.'
+          : 'Connection test was aborted.'
+        : error instanceof ProviderError ||
+            error instanceof ProviderRefusal ||
+            error instanceof AgentActionError
+          ? error.message
+          : 'Connection test failed. Check the model and connection; retry explicitly.';
+      throw new AppError(400, message);
     } finally {
       this.connectionChecks.delete(agentId);
     }

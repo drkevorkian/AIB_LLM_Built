@@ -28,7 +28,19 @@ export const agentSettingsSchema = z.strictObject({
   maxOutputTokens: z.number().int().min(128).max(16384).default(4096),
   timeoutSeconds: z.number().int().min(5).max(600).default(180),
 });
-export const connectionTestSchema = z.strictObject({ agentId: idSchema });
+export const connectionTestSchema = z.strictObject({
+  agentId: idSchema,
+  kind: z.enum(['greeting', 'coordinator']).default('greeting'),
+});
+export type ConnectionTestKind = z.infer<typeof connectionTestSchema>['kind'];
+export interface ConnectionTestResult {
+  kind: ConnectionTestKind;
+  reply: string;
+  provider: ProviderKind;
+  model: string;
+  configRevision: number;
+  testedAt: string;
+}
 export const maxParticipants = 8;
 export const addAgentSchema = agentSettingsSchema.pick({ name: true, role: true });
 export const agentActivationSchema = z.strictObject({ active: z.boolean() });

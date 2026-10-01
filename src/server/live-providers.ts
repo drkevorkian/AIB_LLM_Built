@@ -145,7 +145,12 @@ export function actionOutputSchema(input: ProviderInput): Json {
       body: { type: 'string' },
       recipientIds: {
         type: 'array',
-        items: { type: 'string', enum: input.discussion!.allowedPeerIds },
+        items: {
+          type: 'string',
+          ...(input.discussion!.allowedPeerIds.length
+            ? { enum: input.discussion!.allowedPeerIds }
+            : {}),
+        },
       },
       policy: { type: 'string', enum: ['all', 'any', 'quorum'] },
       quorum: { type: 'integer' },

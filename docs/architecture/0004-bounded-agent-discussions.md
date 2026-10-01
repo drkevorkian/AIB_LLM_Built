@@ -38,7 +38,7 @@ Native adapters request JSON Schema output:
 | Gemini `streamGenerateContent`    | `generationConfig.responseFormat.text`, JSON MIME type and schema |
 | Ollama chat                       | `format`, JSON Schema                                             |
 
-The requested model/server must support that structured-output protocol. Catalog discovery and a successful plain-text greeting do not establish this capability. An unsupported request fails visibly; no plain-text or simulation fallback is attempted. Capability discovery and account/model-specific smoke tests remain TODOs.
+The requested model/server must support that structured-output protocol. Catalog discovery and a successful plain-text greeting do not establish this capability. An unsupported request fails visibly; no plain-text or simulation fallback is attempted. v0.8.0 provides a separate [coordinator capability test](0009-coordinator-capability-tests.md) requiring a completed finish decision for the saved binding. Capability catalogs and account/model-specific smoke tests remain TODOs.
 
 The adapter privately buffers at most 128,000 characters of structured output. It requires the normal provider completion event before parsing and yielding an action. The engine then independently validates the schema, identities, reply scope, limits, and repeated-question check before any dispatch. Partial action JSON is never exposed as answer text. Source messages and peer answers remain attributed data; their routing-looking prose never becomes an action.
 

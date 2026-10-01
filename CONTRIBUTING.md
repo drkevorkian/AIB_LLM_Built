@@ -24,6 +24,8 @@ Read [ADR 0008](docs/architecture/0008-message-presentation.md) before extending
 
 No project license has been selected yet. Do not add a license grant or publish a package without that decision.
 
+Read [ADR 0009](docs/architecture/0009-coordinator-capability-tests.md) before changing connection probes. Greeting and coordinator checks share concurrency, timeout, archive/roster locks, and cancellation; they must not persist conversation work, consume room turns, or transmit history/objectives. Coordinator success requires a valid completed finish decision, without automatic repair, retry, or fallback. Keep results scoped to the tested configuration/time and retain explicit simulation labels.
+
 Provider tests use synthetic safe streams and loopback HTTP fixtures. The Playwright service explicitly clears cloud API-key variables so automated browser tests cannot call or bill cloud providers. Never use a real key in a protocol fixture, checked-in transcript, screenshot, or test expectation. Credentialed provider smoke tests are separate, explicitly invoked checks whose model IDs and date must be recorded without keys.
 
 Coordinator actions must pass server validation and an explicit provider completion before scheduling peers. Keep grants, turn reservation, peer barriers, and cancellation atomic. Read [ADR 0004](docs/architecture/0004-bounded-agent-discussions.md) before extending discussion routing. Invalid completed actions may receive one bounded correction; network failures must not acquire that automatic retry path.
