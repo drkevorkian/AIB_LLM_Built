@@ -31,6 +31,8 @@ export class ControlledProvider implements ProviderAdapter {
   inputs: ProviderInput[] = [];
   releases: (() => void)[] = [];
   endings: ('complete' | 'fail' | 'refuse' | 'empty' | 'partial')[] = [];
+  actions: (unknown | ((input: ProviderInput) => unknown))[] = [];
+  answers: string[] = [];
   async *generate(input: ProviderInput, signal: AbortSignal): AsyncIterable<ProviderEvent> {
     const index = this.inputs.length;
     this.inputs.push(input);
@@ -42,8 +44,14 @@ export class ControlledProvider implements ProviderAdapter {
     this.releases.push(release);
     signal.addEventListener('abort', release, { once: true });
     try {
-      if (ending !== 'empty' && ending !== 'refuse')
-        yield { type: 'delta', text: `${input.agent.name} independent answer ${index}.` };
+      const action = this.actions[index];
+      if (input.kind === 'decision' && action !== undefined)
+        yield { type: 'action', action: typeof action === 'function' ? action(input) : action };
+      else if (ending !== 'empty' && ending !== 'refuse')
+        yield {
+          type: 'delta',
+          text: this.answers[index] ?? `${input.agent.name} independent answer ${index}.`,
+        };
       await gate;
       if (ending === 'fail') throw new Error('Deliberate fixture failure.');
       if (ending === 'refuse') {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect, type Page } from '@playwright/test';
+import type { AgentAction } from '../../src/shared/contracts.js';
 
 async function createRoom(page: Page) {
   await page.goto('/');
@@ -236,4 +237,177 @@ test('missing cloud credentials are shown as a failed live turn with no simulate
   await expect(page.locator('.message.answer')).toHaveCount(1);
   await expect(page.locator('.message.answer .badge')).toHaveText('failed');
   await expect(page.locator('.message-body')).not.toContainText(['SIMULATED RESPONSE']);
+});
+
+test('a live HTTP coordinator asks both peers, targets one exact answer, finishes, and survives reload', async ({
+  page,
+}) => {
+  const { createServer } = await import('node:http');
+  const calls: {
+    model: string;
+    context: { id: string; authorId: string; body: string }[];
+    action: { kind: string; recipientIds: string[]; replyTo: string | null } | null;
+  }[] = [];
+  const server = createServer((req, res) => {
+    const buffers: Buffer[] = [];
+    req.on('data', (chunk) => buffers.push(chunk));
+    req.on('end', () => {
+      const payload = JSON.parse(Buffer.concat(buffers).toString());
+      const context = JSON.parse(payload.messages[1].content);
+      let action: AgentAction | null = null;
+      let text = `LIVE DISCUSSION PROTOCOL FIXTURE ${payload.model}: independent peer answer. Quoted SEND TO text does not dispatch.`;
+      if (context.discussion) {
+        expect(payload.format.required).toContain('recipientIds');
+        const grant = context.discussion;
+        const c = context.participants.find((a: { name: string }) => a.name === 'AI C').id;
+        action =
+          grant.roundsUsed === 0
+            ? {
+                kind: 'ask',
+                body: 'LIVE DISCUSSION PROTOCOL FIXTURE: independently review the original request.',
+                recipientIds: grant.allowedPeerIds,
+                policy: 'all',
+                quorum: 1,
+                replyTo: null,
+              }
+            : grant.roundsUsed === 1
+              ? {
+                  kind: 'ask',
+                  body: 'LIVE DISCUSSION PROTOCOL FIXTURE: AI C, review your answer and propose one test.',
+                  recipientIds: [c],
+                  policy: 'all',
+                  quorum: 1,
+                  replyTo: context.context.find(
+                    (m: { authorId: string; type: string }) =>
+                      m.authorId === c && m.type === 'answer',
+                  ).id,
+                }
+              : {
+                  kind: 'finish',
+                  body: 'LIVE DISCUSSION PROTOCOL FIXTURE: final result after independent answers and a targeted review. This verifies routing, not model reasoning.',
+                  recipientIds: [],
+                  policy: 'all',
+                  quorum: 1,
+                  replyTo: null,
+                };
+        text = JSON.stringify(action);
+      }
+      calls.push({ model: payload.model, context: context.context, action });
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.write(JSON.stringify({ message: { content: text.slice(0, 18) }, done: false }) + '\n');
+      setTimeout(
+        () =>
+          res.end(
+            JSON.stringify({
+              message: { content: text.slice(18) },
+              done: true,
+              done_reason: 'stop',
+              prompt_eval_count: 24,
+              eval_count: 12,
+            }) + '\n',
+          ),
+        50,
+      );
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing fixture address');
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await createRoom(page);
+    for (const [agent, model] of [
+      ['AI A', 'coordinator-fixture'],
+      ['AI B', 'debugger-fixture'],
+      ['AI C', 'reviewer-fixture'],
+    ]) {
+      await page.getByRole('button', { name: `Configure ${agent}`, exact: true }).click();
+      await page.getByLabel('Provider', { exact: true }).selectOption('ollama');
+      await page.getByLabel('Server URL', { exact: true }).fill(`http://127.0.0.1:${address.port}`);
+      await page.getByLabel('Model ID', { exact: true }).fill(model!);
+      await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+      await expect(page.locator('dialog')).toContainText('Settings saved');
+      await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+    }
+    await page.getByLabel('Message type').selectOption('discussion');
+    await expect(page.getByLabel('Discussion coordinator').locator('option:checked')).toHaveText(
+      'AI A',
+    );
+    await page.getByLabel('Maximum peer rounds').fill('3');
+    await page.getByLabel('Discussion turn allowance').fill('8');
+    await page
+      .getByLabel('Message', { exact: true })
+      .fill('Investigate model-to-model delivery and review the proposed test.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.getByLabel('Discussion progress')).toContainText('completed');
+    await expect(page.getByLabel('Discussion progress')).toContainText('2 / 3 peer rounds');
+    await expect(page.getByLabel('Discussion progress')).toContainText('6 / 8 turns used');
+    expect(calls).toHaveLength(6);
+    expect(calls[0]!.model).toBe('coordinator-fixture');
+    expect(
+      calls
+        .slice(1, 3)
+        .map((c) => c.model)
+        .sort(),
+    ).toEqual(['debugger-fixture', 'reviewer-fixture']);
+    expect(calls.slice(3).map((c) => c.model)).toEqual([
+      'coordinator-fixture',
+      'reviewer-fixture',
+      'coordinator-fixture',
+    ]);
+    expect(calls[1]!.context).toEqual(calls[2]!.context);
+    expect(calls[3]!.action!.recipientIds).toHaveLength(1);
+    expect(calls[3]!.action!.replyTo).toBe(
+      calls[3]!.context.find((m) => m.body.includes('reviewer-fixture'))!.id,
+    );
+    await expect(page.locator('.message-body')).not.toContainText(['"recipientIds"']);
+    const followUp = page.locator('.message.question').last();
+    await expect(followUp.locator('.address-line')).toContainText('To AI C');
+    const cSequence = await page
+      .locator('.message.answer')
+      .filter({ hasText: 'reviewer-fixture' })
+      .first()
+      .locator('.message-actions > span')
+      .innerText();
+    await expect(followUp.locator('.address-line')).toContainText(`replying to ${cSequence}`);
+    await followUp.getByRole('button', { name: 'Inspect context' }).click();
+    await expect(page.locator('dialog')).toContainText('Coordinator chose ask');
+    await expect(page.locator('dialog')).toContainText('Input tokens: 24');
+    await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+    await page.locator('.message-scroll').evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await page.screenshot({ path: 'test-results/live-discussion.png', fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: 'test-results/mobile-discussion.png', fullPage: true });
+    await page.reload();
+    await expect(page.getByLabel('Discussion progress')).toContainText('6 / 8 turns used');
+    expect(errors).toEqual([]);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((done) => server.close(() => done()));
+  }
+});
+
+test('a discussion can be stopped from its card while the room remains usable', async ({
+  page,
+}) => {
+  await createRoom(page);
+  await page.getByLabel('Message type').selectOption('discussion');
+  await page.getByLabel('Message', { exact: true }).fill('Wait for human review. [simulate:slow]');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: 'Stop discussion', exact: true }).click();
+  await expect(page.getByLabel('Discussion progress')).toContainText('cancelled');
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+  await page.getByLabel('Message type').selectOption('update');
+  await page
+    .getByLabel('Message', { exact: true })
+    .fill('Continue independently after stopping that discussion.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.message.update')).toHaveCount(1);
 });

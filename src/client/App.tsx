@@ -7,6 +7,7 @@ import type {
   Room,
   RoomSummary,
   Relay,
+  Discussion,
   SendInput,
 } from '../shared/contracts.js';
 import { api, watch } from './api.js';
@@ -185,6 +186,16 @@ export function App() {
   const activeCount = room?.jobs.filter((j) => j.status === 'running').length ?? 0;
   const queueCount = room?.jobs.filter((j) => j.status === 'queued').length ?? 0;
   const liveCount = room?.agents.filter((a) => a.provider !== 'simulated').length ?? 0;
+  const reservedTurns = room
+    ? room.jobs.filter((j) => j.status === 'queued' && !j.discussionId).length +
+      room.requests.filter((r) => r.status === 'collecting' && r.synthesisAgentId).length +
+      room.relays
+        .filter((r) => ['running', 'blocked'].includes(r.status))
+        .reduce((n, r) => n + r.order.length - r.requestIds.length, 0) +
+      room.discussions
+        .filter((d) => ['running', 'waiting', 'blocked'].includes(d.status))
+        .reduce((n, d) => n + d.maxTurns - d.turnsUsed, 0)
+    : 0;
   const snapshots =
     inspect && room ? room.snapshots.find((s) => s.id === inspect.snapshotId) : null;
 
@@ -204,7 +215,7 @@ export function App() {
           {liveCount
             ? `${liveCount} LIVE AGENT${liveCount === 1 ? '' : 'S'} CONFIGURED`
             : 'SIMULATION'}
-          <span className="version">v0.2.0</span>
+          <span className="version">v0.3.0</span>
         </div>
         <div className="header-actions">
           <span className={`connection ${connected ? 'online' : ''}`}>
@@ -427,16 +438,34 @@ export function App() {
                     }}
                     onInspect={() => setInspect(m)}
                   />
-                  {m.type === 'question' && room.requests.find((r) => r.id === m.requestId) && (
-                    <ResponseSet
-                      request={room.requests.find((r) => r.id === m.requestId)!}
-                      room={room}
-                    />
-                  )}
+                  {m.type === 'question' &&
+                    room.requests.find((r) => r.id === m.requestId && r.phase !== 'decision') && (
+                      <ResponseSet
+                        request={room.requests.find((r) => r.id === m.requestId)!}
+                        room={room}
+                      />
+                    )}
                   {room.relays
                     .filter((r) => r.messageId === m.id)
                     .map((r) => (
                       <RelayCard key={r.id} relay={r} room={room} />
+                    ))}
+                  {room.discussions
+                    .filter((d) => d.messageId === m.id)
+                    .map((d) => (
+                      <DiscussionCard
+                        key={d.id}
+                        discussion={d}
+                        room={room}
+                        onStop={async () => {
+                          try {
+                            await api.stopDiscussion(room.id, d.id);
+                            setTick((v) => v + 1);
+                          } catch (e) {
+                            setError(errorText(e));
+                          }
+                        }}
+                      />
                     ))}
                 </div>
               ))}
@@ -501,6 +530,10 @@ export function App() {
               </div>
               <progress value={room.turnsUsed} max={room.maxTurns} aria-label="Turns used" />
               <p>
+                {Math.max(0, room.maxTurns - room.turnsUsed - reservedTurns)} available ·{' '}
+                {reservedTurns} reserved
+              </p>
+              <p>
                 Each generation counts as a turn. Updates do not. Live provider usage may incur
                 charges.
               </p>
@@ -556,11 +589,27 @@ export function App() {
           {room.jobs
             .filter((j) => j.messageId === inspect.id)
             .map((j) => (
-              <p key={j.id} className="muted">
-                Provider request: {j.providerRequestId ?? 'not reported'} · Input tokens:{' '}
-                {j.usage?.inputTokens ?? 'not reported'} · Output tokens:{' '}
-                {j.usage?.outputTokens ?? 'not reported'}
-              </p>
+              <div key={j.id} className="muted">
+                <p>
+                  Attempt: {j.id} · {j.kind} · {j.status}
+                  {j.previousJobId ? ` · follows ${j.previousJobId}` : ''}
+                </p>
+                {j.error && <p className="form-error">{j.error}</p>}
+                {j.agentAction && (
+                  <p>
+                    Coordinator chose {j.agentAction.kind}
+                    {j.agentAction.kind === 'ask'
+                      ? ` · ${j.agentAction.policy} · to ${j.agentAction.recipientIds.map((id) => nameOf(room, id)).join(', ')}`
+                      : ''}
+                    .
+                  </p>
+                )}
+                <p>
+                  Provider request: {j.providerRequestId ?? 'not reported'} · Input tokens:{' '}
+                  {j.usage?.inputTokens ?? 'not reported'} · Output tokens:{' '}
+                  {j.usage?.outputTokens ?? 'not reported'}
+                </p>
+              </div>
             ))}
           {snapshots ? (
             <Snapshot snapshot={snapshots} room={room} />
@@ -594,6 +643,8 @@ function MessageCard({
     room.snapshots.find((s) => s.id === m.snapshotId)?.agents.find((a) => a.id === m.authorId) ??
     agent;
   const prior = room.messages.find((p) => p.id === m.replyTo);
+  const attempt = room.jobs.find((j) => j.messageId === m.id);
+  const response = room.requests.find((r) => r.id === attempt?.requestId);
   return (
     <article
       className={`message ${agent?.color ?? 'human'} ${m.type}`}
@@ -622,10 +673,22 @@ function MessageCard({
             : 'room observers'}
           <span> · room-visible</span>
           {prior && <span> · replying to #{prior.sequence}</span>}
+          {response?.phase === 'consultation' &&
+            response.status === 'ready' &&
+            m.status === 'complete' &&
+            !response.includedMessageIds.includes(m.id) && (
+              <span> · arrived after the set closed</span>
+            )}
         </div>
         <p className="message-body">
           {m.body ||
-            (m.status === 'streaming' ? 'Preparing a response…' : 'No answer text received.')}
+            (attempt?.kind === 'decision'
+              ? m.status === 'streaming'
+                ? 'Choosing the next question or final answer…'
+                : 'No coordinator action accepted. Inspect this attempt for details.'
+              : m.status === 'streaming'
+                ? 'Preparing a response…'
+                : 'No answer text received.')}
           {m.status === 'streaming' && <span className="stream-cursor" />}
         </p>
         <div className="message-actions">
@@ -663,6 +726,49 @@ function RelayCard({ relay, room }: { relay: Relay; room: Room }) {
   );
 }
 
+function DiscussionCard({
+  discussion: d,
+  room,
+  onStop,
+}: {
+  discussion: Discussion;
+  room: Room;
+  onStop: () => Promise<void>;
+}) {
+  const [stopping, setStopping] = useState(false);
+  const open = ['running', 'waiting', 'blocked'].includes(d.status);
+  return (
+    <div className="response-set discussion-status" aria-label="Discussion progress">
+      <div>
+        <span className="collection-label">AGENT DISCUSSION</span>
+        <strong>{nameOf(room, d.leaderId)} coordinates</strong>
+        <Badge value={d.status} />
+      </div>
+      <p>
+        {d.roundsUsed} / {d.maxRounds} peer rounds · {d.turnsUsed} / {d.maxTurns} turns used
+      </p>
+      <small className="muted">
+        The coordinator chooses peers, a collection policy, and targeted follow-ups. Peer answers
+        stay separate. One correction attempt per invalid decision may run within this allowance.
+      </small>
+      {d.error && <p className="form-error">{d.error}</p>}
+      {open && (
+        <button
+          type="button"
+          className="quiet discussion-stop"
+          disabled={stopping}
+          onClick={() => {
+            setStopping(true);
+            void onStop().finally(() => setStopping(false));
+          }}
+        >
+          {stopping ? 'Stopping…' : 'Stop discussion'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ResponseSet({ request, room }: { request: Request; room: Room }) {
   const completed = request.recipientIds.filter((id) =>
     room.jobs.some(
@@ -690,7 +796,9 @@ function ResponseSet({ request, room }: { request: Request; room: Room }) {
             : `Wait for ${request.quorum} complete answers`}
         {request.synthesisAgentId
           ? ` · then ${nameOf(room, request.synthesisAgentId)} synthesizes`
-          : ' · preserve individual answers'}
+          : request.phase === 'consultation'
+            ? ` · then ${nameOf(room, room.discussions.find((d) => d.id === request.discussionId)!.leaderId)} continues`
+            : ' · preserve individual answers'}
       </p>
       <div className="respondents">
         {request.recipientIds.map((id) => {
@@ -730,12 +838,14 @@ function AgentCard({
   const queued = jobs.filter((j) => j.status === 'queued').length;
   const latest = jobs.at(-1);
   const request = room.requests.find((r) => r.id === latest?.requestId);
+  const discussion = room.discussions.find((d) => d.id === latest?.discussionId);
   const retryable =
     latest &&
     ['failed', 'interrupted'].includes(latest.status) &&
     request &&
     !['cancelled', 'timed_out'].includes(request.status) &&
-    (request.status !== 'ready' || latest.kind === 'synthesis');
+    (request.status !== 'ready' || latest.kind === 'synthesis') &&
+    (!discussion || !['completed', 'cancelled'].includes(discussion.status));
   return (
     <div className={`agent-card ${agent.color}`}>
       <div className="agent-top">
@@ -790,7 +900,10 @@ function Composer({
 }) {
   const [body, setBody] = useState('');
   const [recipients, setRecipients] = useState(room.agents.slice(1).map((a) => a.id));
-  const [type, setType] = useState<'question' | 'update' | 'relay'>('question');
+  const [type, setType] = useState<'question' | 'update' | 'relay' | 'discussion'>('question');
+  const [leaderId, setLeaderId] = useState(room.agents[0]!.id);
+  const [maxRounds, setMaxRounds] = useState(3);
+  const [maxTurns, setMaxTurns] = useState(12);
   const [relayOrder, setRelayOrder] = useState([
     room.agents[0]!.id,
     room.agents[2]!.id,
@@ -830,15 +943,21 @@ function Composer({
       const result = await api.send(room.id, {
         clientId: clientId.current,
         body,
-        type: type === 'relay' ? 'question' : type,
-        recipientIds: type === 'relay' ? relayOrder.slice(0, 1) : recipients,
-        policy: type === 'relay' ? 'all' : policy,
+        type: type === 'relay' || type === 'discussion' ? 'question' : type,
+        recipientIds:
+          type === 'discussion'
+            ? [leaderId]
+            : type === 'relay'
+              ? relayOrder.slice(0, 1)
+              : recipients,
+        policy: type === 'relay' || type === 'discussion' ? 'all' : policy,
         quorum,
         synthesisAgentId: type === 'question' && synthesis && synthesizer ? synthesizer.id : null,
         threadId,
         replyTo: reply?.id ?? null,
         deadlineSeconds,
         relayOrder: type === 'relay' ? relayOrder : [],
+        discussion: type === 'discussion' ? { maxRounds, maxTurns } : null,
       });
       setBody('');
       clientId.current = null;
@@ -864,7 +983,7 @@ function Composer({
           </button>
         </div>
       )}
-      {type !== 'relay' && (
+      {type !== 'relay' && type !== 'discussion' && (
         <div className="recipient-row">
           <span className="eyebrow">TO</span>
           {room.agents.map((a) => (
@@ -886,6 +1005,61 @@ function Composer({
             </label>
           ))}
           <span className="visibility-label">Visible to the room</span>
+        </div>
+      )}
+      {type === 'discussion' && (
+        <div className="discussion-editor">
+          <label>
+            Coordinator
+            <select
+              aria-label="Discussion coordinator"
+              value={leaderId}
+              onChange={(e) => {
+                setLeaderId(e.target.value);
+                clientId.current = null;
+              }}
+            >
+              {room.agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Peer rounds
+            <input
+              aria-label="Maximum peer rounds"
+              type="number"
+              required
+              min={1}
+              max={10}
+              value={maxRounds}
+              onChange={(e) => {
+                setMaxRounds(Number(e.target.value));
+                clientId.current = null;
+              }}
+            />
+          </label>
+          <label>
+            Turn allowance
+            <input
+              aria-label="Discussion turn allowance"
+              type="number"
+              required
+              min={2}
+              max={50}
+              value={maxTurns}
+              onChange={(e) => {
+                setMaxTurns(Number(e.target.value));
+                clientId.current = null;
+              }}
+            />
+          </label>
+          <p>
+            Allow {nameOf(room, leaderId)} to ask either peer, collect answers, and follow up. All
+            messages stay visible to you.
+          </p>
         </div>
       )}
       {type === 'relay' && (
@@ -972,6 +1146,7 @@ function Composer({
           >
             <option value="question">Question</option>
             <option value="relay">Automatic relay</option>
+            <option value="discussion">Agent discussion</option>
             <option value="update">Update · no reply</option>
           </select>
           {type !== 'update' && (
@@ -1056,7 +1231,9 @@ function Composer({
             ? 'No agents invoked'
             : type === 'relay'
               ? `${relayOrder.length} turns reserved; each hop waits for the previous answer`
-              : 'Independent answers from the same starting context'}
+              : type === 'discussion'
+                ? `${maxTurns} turns reserved, including decisions, peer answers, and correction attempts`
+                : 'Independent answers from the same starting context'}
         </span>
         <span>Ctrl / ⌘ + Enter</span>
       </div>

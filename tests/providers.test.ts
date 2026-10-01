@@ -344,3 +344,154 @@ test('relay and synthesis instructions retain source attribution and distinguish
   assert.deepEqual(JSON.parse(prompt.user).missingRespondents, ['AI B']);
   assert.equal(JSON.parse(prompt.user).context[0].authorId, 'human');
 });
+
+for (const kind of ['openai', 'xai', 'gemini', 'ollama', 'openai-compatible'] as const)
+  test(`${kind} requests native structured actions and keeps partial routing JSON out of the transcript`, async () => {
+    const request = input(kind);
+    if (kind === 'openai-compatible') request.agent.baseUrl = 'https://models.example/v1';
+    request.kind = 'decision';
+    request.discussion = {
+      id: 'discussion',
+      allowedPeerIds: ['b', 'c'],
+      roundsUsed: 0,
+      maxRounds: 3,
+      turnsRemaining: 11,
+    };
+    const action = {
+      kind: 'ask',
+      body: 'Review the failure cases.',
+      recipientIds: ['b', 'c'],
+      policy: 'all',
+      quorum: 1,
+      replyTo: null,
+    };
+    const raw = JSON.stringify(action);
+    const fetcher: typeof fetch = async (_url, options) => {
+      const body = JSON.parse(options?.body as string);
+      const schema =
+        kind === 'openai'
+          ? body.text.format.schema
+          : kind === 'gemini'
+            ? body.generationConfig.responseFormat.text.schema
+            : kind === 'ollama'
+              ? body.format
+              : body.response_format.json_schema.schema;
+      assert.deepEqual(schema.required, [
+        'kind',
+        'body',
+        'recipientIds',
+        'policy',
+        'quorum',
+        'replyTo',
+      ]);
+      assert.equal(schema.additionalProperties, false);
+      assert.deepEqual(schema.properties.recipientIds.items.enum, ['b', 'c']);
+      assert.equal(body.tools, undefined);
+      if (kind === 'openai')
+        return stream(
+          event({ type: 'response.output_text.delta', delta: raw.slice(0, 15) }) +
+            event({ type: 'response.output_text.delta', delta: raw.slice(15) }) +
+            event({
+              type: 'response.completed',
+              response: { id: 'decision-id', status: 'completed' },
+            }),
+        );
+      if (kind === 'gemini')
+        return stream(
+          event({ candidates: [{ content: { parts: [{ text: raw }] }, finishReason: 'STOP' }] }),
+        );
+      if (kind === 'ollama')
+        return stream(
+          JSON.stringify({ message: { content: raw.slice(0, 15) }, done: false }) +
+            '\n' +
+            JSON.stringify({
+              message: { content: raw.slice(15) },
+              done: true,
+              done_reason: 'stop',
+            }) +
+            '\n',
+          'application/x-ndjson',
+        );
+      return stream(
+        event({ choices: [{ delta: { content: raw }, finish_reason: 'stop' }] }) +
+          'data: [DONE]\n\n',
+      );
+    };
+    const events = await collect(new LiveProviders(keys, fetcher), request);
+    assert.equal(text(events), '', 'Action JSON must never be displayed as answer text.');
+    assert.deepEqual(
+      events.filter((e) => e.type === 'action'),
+      [{ type: 'action', action }],
+    );
+    assert.equal(events.at(-1)?.type, 'complete');
+  });
+
+test('only a confirmed, completed malformed action is eligible for correction; truncation is a provider failure', async () => {
+  const { AgentActionError } = await import('../src/server/providers.js');
+  const request = input('openai');
+  request.kind = 'decision';
+  request.discussion = {
+    id: 'd',
+    allowedPeerIds: ['b'],
+    roundsUsed: 0,
+    maxRounds: 1,
+    turnsRemaining: 3,
+  };
+  await assert.rejects(
+    collect(
+      new LiveProviders(keys, async () =>
+        stream(
+          event({ type: 'response.output_text.delta', delta: 'not JSON' }) +
+            event({ type: 'response.completed', response: { status: 'completed' } }),
+        ),
+      ),
+      request,
+    ),
+    AgentActionError,
+  );
+  const valid = JSON.stringify({
+    kind: 'finish',
+    body: 'Final.',
+    recipientIds: [],
+    policy: 'all',
+    quorum: 1,
+    replyTo: null,
+  });
+  await assert.rejects(
+    collect(
+      new LiveProviders(keys, async () =>
+        stream(event({ type: 'response.output_text.delta', delta: valid })),
+      ),
+      request,
+    ),
+    (error: unknown) => error instanceof ProviderError && !(error instanceof AgentActionError),
+  );
+});
+
+test('a server rejecting structured output produces one explicit failure without a plain-text or simulated fallback', async () => {
+  const request = input('openai-compatible');
+  request.agent.baseUrl = 'https://models.example/v1';
+  request.kind = 'decision';
+  request.discussion = {
+    id: 'd',
+    allowedPeerIds: ['b'],
+    roundsUsed: 0,
+    maxRounds: 1,
+    turnsRemaining: 3,
+  };
+  let calls = 0;
+  await assert.rejects(
+    collect(
+      new LiveProviders({}, async () => {
+        calls += 1;
+        return new Response('{"error":"private details"}', { status: 400 });
+      }),
+      request,
+    ),
+    ProviderError,
+  );
+  assert.equal(calls, 1);
+  const prompt = providerPrompt(request);
+  assert.ok(prompt.system.includes('bounded discussion'));
+  assert.deepEqual(JSON.parse(prompt.user).discussion.allowedPeerIds, ['b']);
+});

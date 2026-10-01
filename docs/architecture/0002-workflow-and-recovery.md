@@ -1,6 +1,6 @@
 # ADR 0002: Explicit obligations and frozen response sets
 
-Status: Accepted; updated for the v0.2.0 live-provider and relay milestone.
+Status: Accepted; updated for v0.3.0 bounded discussions. See [ADR 0004](0004-bounded-agent-discussions.md).
 
 ## Implemented flow
 
@@ -12,7 +12,7 @@ Status: Accepted; updated for the v0.2.0 live-provider and relay milestone.
 6. Close an all/any/quorum response set with immutable included message IDs.
 7. If requested, queue a separate synthesis invocation whose snapshot includes only the original context and the closed answer set.
 
-All messages in v0.2.0 are room-visible. Only selected recipients receive work. Updates and prose mentions create no invocations. Agent-authored questions and autonomous structured routing are not implemented yet; current adapters return answers or synthesis; relay routing is selected by the human.
+All messages are room-visible. Only selected recipients receive work. Updates and prose mentions create no invocations. Fixed relay routing is selected by the human. A separately granted discussion coordinator may ask peers through validated actions; peers have no delegation permission.
 
 ## Policies
 
@@ -28,14 +28,14 @@ Only the all/any/quorum subset of the full README policy design is implemented. 
 
 ## Pause, stop, and restart
 
-- Pause prevents new dispatches. Already-running jobs can finish; any dependent synthesis or next relay hop stays queued.
+- Pause prevents new dispatches. Already-running jobs can finish; any dependent synthesis, relay hop, or discussion continuation stays queued.
 - Stop cancels queued and active jobs and closes collecting requests as cancelled. Results arriving afterward cannot release more work.
 - Resume permits valid queued jobs to dispatch. It does not recreate cancelled jobs.
 - Restart pauses unfinished rooms. Previously running jobs become interrupted; queued jobs remain queued. Interrupted jobs are never replayed automatically.
 - Explicit retry creates a new job linked to the previous attempt. The earlier error and partial message remain inspectable in persisted state. At most three attempts are allowed for a given recipient/kind in a request.
 - Resend protection uses a client-generated UUID plus a hash of the validated command. Repeating the same send returns the original message; changing its content under the same UUID produces a conflict.
 
-Live adapters preserve provider-reported request IDs and usage. Provider-specific reconciliation is not implemented. Generations are never automatically retried: an explicit retry may duplicate provider work or charges if the earlier request was accepted remotely. Aborting a local stream does not guarantee that remote processing or billing stops. Interrupted attempts require explicit review/retry.
+Live adapters preserve provider-reported request IDs and usage. Provider-specific reconciliation is not implemented. Provider/network failures are never automatically retried. An invalid completed coordinator decision may receive one new correction invocation within its reserved allowance (ADR 0004). For other failures, an explicit retry may duplicate provider work or charges if the earlier request was accepted remotely. Aborting a local stream does not guarantee that remote processing or billing stops. Interrupted attempts require explicit review/retry.
 
 ## Context limits
 

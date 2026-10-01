@@ -73,10 +73,64 @@ test('local HTTP boundary enforces token, host, origin, strict commands, and saf
     const repeat = await fetch(sendUrl, { method: 'POST', headers, body: JSON.stringify(input) });
     assert.deepEqual(await first.json(), await repeat.json());
     assert.equal(store.get(room.id).messages.length, 1);
+    const discussionResponse = await fetch(sendUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(
+        command([room.agents[0]!.id], { discussion: { maxRounds: 3, maxTurns: 12 } }),
+      ),
+    });
+    assert.equal(discussionResponse.status, 201);
+    const { discussionId } = (await discussionResponse.json()) as { discussionId: string };
+    const stopUrl = `${base}/api/rooms/${room.id}/discussion-stop`;
+    assert.equal(
+      (
+        await fetch(stopUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ discussionId }),
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await fetch(stopUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ discussionId, authorId: 'human' }),
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await fetch(stopUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ discussionId: 'unknown' }),
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (await fetch(stopUrl, { method: 'POST', headers, body: JSON.stringify({ discussionId }) }))
+        .status,
+      200,
+    );
+    assert.equal(store.get(room.id).status, 'running');
+    assert.equal(store.get(room.id).discussions[0]!.status, 'cancelled');
+    assert.equal(
+      store.get(room.id).jobs[0]!.status,
+      'queued',
+      'Stopping a discussion must retain unrelated obligations.',
+    );
     const exported = await fetch(`${base}/api/rooms/${room.id}/export`, { headers });
     assert.match(exported.headers.get('content-type')!, /text\/markdown/);
     const text = await exported.text();
     assert.ok(text.includes('Simulation transcript'));
+    assert.ok(text.includes(`Discussion: ${discussionId}`));
+    assert.ok(text.includes('Peer rounds: 0/3'));
     assert.ok(!text.includes(token));
     assert.equal((await fetch(`${base}/package.json`)).status, 404);
     assert.equal((await fetch(`${base}/..%2F..%2Fpackage.json`)).status, 403);

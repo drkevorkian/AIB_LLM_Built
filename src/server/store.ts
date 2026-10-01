@@ -110,6 +110,7 @@ export class RoomStore {
     }
     // v0.2 adds optional fields; v0.1 records remain usable without rewriting history.
     room.relays ??= [];
+    room.discussions ??= [];
     return room;
   }
 }

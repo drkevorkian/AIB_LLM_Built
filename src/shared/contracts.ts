@@ -46,7 +46,24 @@ export const sendSchema = z.strictObject({
   replyTo: idSchema.nullable().default(null),
   deadlineSeconds: z.number().int().min(5).max(600).default(120),
   relayOrder: z.array(idSchema).max(12).default([]),
+  discussion: z
+    .strictObject({
+      maxRounds: z.number().int().min(1).max(10),
+      maxTurns: z.number().int().min(2).max(50),
+    })
+    .nullable()
+    .default(null),
 });
+export const agentActionSchema = z.strictObject({
+  kind: z.enum(['ask', 'finish']),
+  body: z.string().trim().min(1).max(20000),
+  recipientIds: z.array(idSchema).max(8),
+  policy: z.enum(['all', 'any', 'quorum']),
+  quorum: z.number().int().min(1).max(8),
+  replyTo: idSchema.nullable(),
+});
+export type AgentAction = z.infer<typeof agentActionSchema>;
+export const stopDiscussionSchema = z.strictObject({ discussionId: idSchema });
 export const controlSchema = z.strictObject({ action: z.enum(['pause', 'resume', 'stop']) });
 export const retrySchema = z.strictObject({ jobId: idSchema });
 export type CreateRoomInput = z.infer<typeof createRoomSchema>;
@@ -129,12 +146,15 @@ export interface Request {
   closedAt: string | null;
   relayId?: string;
   relayStep?: number;
+  discussionId?: string;
+  phase?: 'decision' | 'consultation';
+  sourceRequestId?: string;
 }
 export interface Job {
   id: string;
   requestId: string;
   agentId: string;
-  kind: 'answer' | 'synthesis';
+  kind: 'answer' | 'synthesis' | 'decision';
   status: JobStatus;
   snapshotId: string;
   attemptId: string | null;
@@ -146,6 +166,28 @@ export interface Job {
   endedAt: string | null;
   providerRequestId?: string;
   usage?: TokenUsage;
+  discussionId?: string;
+  repairReason?: string;
+  agentAction?: AgentAction;
+}
+export interface Discussion {
+  id: string;
+  messageId: string;
+  threadId: string;
+  leaderId: string;
+  allowedPeerIds: string[];
+  status: 'running' | 'waiting' | 'completed' | 'blocked' | 'cancelled';
+  maxRounds: number;
+  roundsUsed: number;
+  maxTurns: number;
+  turnsUsed: number;
+  deadlineSeconds: number;
+  requestIds: string[];
+  roundRequestIds: string[];
+  currentRequestId: string;
+  resultMessageId: string | null;
+  error: string | null;
+  askFingerprints: string[];
 }
 export interface Relay {
   id: string;
@@ -183,6 +225,7 @@ export interface Room {
   snapshots: ContextSnapshot[];
   events: AuditEvent[];
   relays: Relay[];
+  discussions: Discussion[];
 }
 export type RoomSummary = Pick<
   Room,
@@ -192,4 +235,5 @@ export interface SendResult {
   messageId: string;
   threadId: string;
   requestId: string | null;
+  discussionId?: string;
 }

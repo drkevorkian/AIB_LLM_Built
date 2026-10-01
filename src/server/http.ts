@@ -3,7 +3,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { ZodError } from 'zod';
-import { controlSchema, retrySchema, idSchema, connectionTestSchema } from '../shared/contracts.js';
+import {
+  controlSchema,
+  retrySchema,
+  idSchema,
+  connectionTestSchema,
+  stopDiscussionSchema,
+} from '../shared/contracts.js';
 import type { ConversationEngine } from './engine.js';
 import { AppError } from './errors.js';
 
@@ -99,7 +105,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
       if (req.method === 'GET' && url.pathname === '/api/session') {
         json(res, 200, {
           token,
-          version: '0.2.0',
+          version: '0.3.0',
           transport: 'configured',
           continuesWithoutClient: true,
         });
@@ -144,7 +150,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         return;
       }
       const match =
-        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|export|agents|connection-test))?$/.exec(
+        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|export|agents|connection-test|discussion-stop))?$/.exec(
           url.pathname,
         );
       if (!match) throw new AppError(404, 'Endpoint not found.');
@@ -183,6 +189,11 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         json(res, 200, { ok: true });
         return;
       }
+      if (match[2] === 'discussion-stop' && req.method === 'POST') {
+        engine.stopDiscussion(roomId, stopDiscussionSchema.parse(await body(req)).discussionId);
+        json(res, 200, { ok: true });
+        return;
+      }
       if (match[2] === 'export' && req.method === 'GET') {
         const room = engine.store.get(roomId);
         res.setHeader('Content-Disposition', `attachment; filename="room-${room.id}.md"`);
@@ -190,6 +201,10 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         const parts = [
           `# ${room.title}\n\n${room.objective}\n\n${room.agents.every((a) => a.provider === 'simulated') ? 'Simulation transcript' : 'Conversation transcript'}. All messages are room-visible. Provider labels below describe the frozen invocation settings.\n`,
         ];
+        for (const discussion of room.discussions)
+          parts.push(
+            `\nDiscussion: ${discussion.id} · Coordinator: ${discussion.leaderId} · Status: ${discussion.status} · Peer rounds: ${discussion.roundsUsed}/${discussion.maxRounds} · Turns: ${discussion.turnsUsed}/${discussion.maxTurns} · Result: ${discussion.resultMessageId ?? 'none'}${discussion.error ? '\n' + discussion.error : ''}\n`,
+          );
         for (const message of room.messages) {
           const name =
             message.authorId === 'human'

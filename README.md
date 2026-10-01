@@ -1,8 +1,8 @@
 # AI Conversation Room
 
-A local workspace where independent LLM agents answer directed or parallel requests, review prior answers, and exchange responses through automatic relay orders under human control.
+A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** v0.2.0 adds live provider connections and automatic relay to the runnable TypeScript application. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and the full browser flow are tested with fixtures; paid-provider accounts have not been verified in this workspace because credentials are unavailable. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
+**Status:** v0.3.0 adds agent-chosen peer questions and targeted follow-ups to the runnable TypeScript application. A human-selected coordinator can ask one or both peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and the full browser flow are tested with fixtures; paid-provider accounts have not been verified in this workspace because credentials are unavailable. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
 
 ## Overview
 
@@ -12,7 +12,7 @@ The central rule is simple:
 
 **Who can see a message, who should answer it, and when they should answer are separate decisions.**
 
-You can ask two agents for independent opinions, wait for both, send their answers to a third agent for synthesis, and ask one participant a targeted follow-up. An automatic relay follows your selected order, including A → C → B → A. Other participants can observe without being required to respond. Agent-chosen routing and open-ended conference discussion remain target capabilities.
+You can ask two agents for independent opinions, wait for both, send their answers to a third agent for synthesis, and ask one participant a targeted follow-up. An automatic relay follows your selected order, including A → C → B → A. Other participants can observe without being required to respond. In **Agent discussion**, a selected coordinator makes its own peer-routing choices and returns a final result. Open-ended conferences and nested peer delegation remain target capabilities.
 
 ## Goals
 
@@ -25,22 +25,24 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
 
-## Available in v0.2.0
+## Available in v0.3.0
 
 - Configurable OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible text-generation connections, alongside clearly labeled simulation.
 - Participant name/role editing, exact model IDs, model discovery, output limits, and connection timeouts.
 - A connection test that makes an actual short generation request and reports its result.
 - Automatic, configurable relay orders with 1–12 hops, repeated participants, exact reply links, and a complete turn reservation before starting.
 - Directed questions, parallel answers, all/any/quorum collection, and optional synthesis after the required answers complete.
+- Agent discussions: a selected coordinator chooses peers, collection policy, exact-message follow-ups, and when to finish, with 1–10 peer rounds and a 2–50 turn allowance reserved before starting.
+- Strict structured coordinator actions, one bounded correction for an invalid completed decision, repeated-question detection, and a per-discussion Stop control.
 - Persistent rooms/objectives/threads, streaming, frozen context inspection, reported token usage, provider request IDs, and Markdown export.
 - Per-agent queues, pause/resume/stop, explicit bounded retries, and restart recovery.
 - A responsive React interface with dark/light themes and a loopback-only service with validated local sessions.
 
 New rooms start in simulation so launch does not invoke or bill a provider. Configure participants explicitly to use real models. Missing credentials or failed live requests produce visible failures; they never fall back to simulation.
 
-See [v0.2.0 release notes](docs/releases/0.2.0.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
+See [v0.3.0 release notes](docs/releases/0.3.0.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
 
-![Automatic relay through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
+![Agent discussion through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
 
 ## Planned capabilities
 
@@ -86,11 +88,11 @@ The service continues working if the browser view closes. Pause or stop from the
 1. Copy `.env.example` to `.env` in the repository directory. For a cloud provider, set `OPENAI_API_KEY`, `XAI_API_KEY`, or `GEMINI_API_KEY` locally. Restart the service after changing keys. Environment variables already set in the service take precedence over `.env`.
 2. Click **Configure AI A**, **Configure AI B**, or **Configure AI C**. Choose its provider, edit its role, and enter the exact text-generation model ID. **Load available models** reads the provider catalog; some catalog entries may not support text generation.
 3. Save the settings. **Test connection** sends a short greeting request through the selected connection. This test may incur provider charges and does not consume the room turn budget. It sends participant roles but no thread history or shared objective.
-4. Send a question, parallel consultation, or relay. All three participants may use different providers, or independent instances of the same provider/model.
+4. Send a question, parallel consultation, relay, or agent discussion. All three participants may use different providers, or independent instances of the same provider/model.
 
 For **Ollama**, start Ollama on your machine and install a model in it. Select **Ollama (local)**, use `http://127.0.0.1:11434`, and load/select the installed model. No cloud API key is needed. The adapter accepts loopback servers only.
 
-For an **OpenAI-compatible server**, enter its base URL, including `/v1` when required by that server. HTTPS is required except on localhost. Set `AIB_COMPATIBLE_API_KEY` in the service if your server requires bearer authentication. Redirects are rejected to prevent forwarding credentials to a different endpoint. Compatibility depends on the server implementing streamed Chat Completions with a complete `stop` outcome.
+For an **OpenAI-compatible server**, enter its base URL, including `/v1` when required by that server. HTTPS is required except on localhost. Set `AIB_COMPATIBLE_API_KEY` in the service if your server requires bearer authentication. Redirects are rejected to prevent forwarding credentials to a different endpoint. Compatibility depends on the server implementing streamed Chat Completions with a complete `stop` outcome. A discussion coordinator additionally requires JSON Schema structured-output support; ordinary peer answers remain plain text. A successful greeting test does not verify that additional capability.
 
 Provider keys remain in the service environment. They are absent from room records, snapshots, browser responses, and exports. A local `.env` file is ignored by Git but is still a plaintext file on your machine; restrict its filesystem access. OS keychain storage is planned. API access, billing, and model permissions are separate from website sessions/subscriptions.
 
@@ -99,9 +101,12 @@ Provider keys remain in the service environment. They are absent from room recor
 - **Directed:** select one participant and disable synthesis. Its answer is attributed to it; other agents remain observers. **Reply to AI B**, for example, selects B and preserves the exact reply target.
 - **Parallel:** select multiple participants. They receive the same initial context and answer independently. Choose all/any/quorum and optionally a separate synthesizer.
 - **Relay:** choose **Automatic relay** in the composer and edit the ordered steps. The default is A → C → B → A. Each completed answer goes to the next participant; the final answer returns to you. Failure or refusal blocks advancement. Pause holds new hops, and Stop cancels remaining hops. The deadline applies to each hop.
+- **Agent discussion:** select a coordinator, peer-round limit, and turn allowance. The coordinator can ask either peer or both concurrently, choose all/any/quorum, follow up to a specific answer, then return a final result. Decisions, peer answers, correction attempts, and explicit retries all consume the allowance. The default reserves 12 turns and allows 3 peer rounds; unused turns are released when finished or stopped. A round deadline covers the queue and generation time for that decision or peer set. **Stop discussion** cancels only that discussion; room controls still apply to all work.
 - **Update:** share information with no new generation.
 
-Participant settings cannot be edited while queued/running work or a blocked relay remains. Stop pending work first. Previously recorded invocation snapshots retain their original provider, model, and role. Explicit retries retain the original snapshot too; send a new question to use a changed model or role.
+A discussion keeps its submitted objective, roles, and base context frozen. Later updates do not silently replace that context. All/any/quorum closure records the exact included peer answers. Late answers remain separate and do not rewrite the coordinator’s continuation; unfinished late respondents are cancelled when the coordinator finishes. The coordinator may finish without asking peers when the task or allowance calls for it. Exceeding a limit produces a blocked state rather than an invented final answer.
+
+Participant settings cannot be edited while queued/running work, a blocked relay, or an unfinished discussion remains. Stop pending work first. Previously recorded invocation snapshots retain their original provider, model, and role. Explicit retries retain the original snapshot too; send a new question to use a changed model or role.
 
 ### Configuration and data
 
@@ -142,19 +147,19 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-The v0.2.0 suite includes engine/service and provider-protocol tests plus 5 Chromium UI tests. Protocol fixtures exercise the production adapters over streamed HTTP, including the full local-provider relay flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
+The v0.3.0 suite includes engine/service and provider-protocol tests plus 7 Chromium UI tests. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
 
-To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. These markers belong to simulation and have no special behavior in live providers.
+To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. Use `[simulate:follow-up]` in an agent discussion to demonstrate a second round targeting the first peer’s exact answer. These markers belong to simulation and have no special behavior in live providers.
 
 ## Current implementation limits
 
 The rest of this README specifies the full target design. The checked TODO items at the end record completed work; unchecked items remain planned.
 
-The v0.2.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, and automatic fixed relay. Routing remains human-selected: models cannot yet create arbitrary structured send actions, pick their own recipients, run tools, or launch open-ended discussions. Each room currently has three participants; their names, roles, providers, and models are editable.
+The v0.3.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each room currently has three participants; their names, roles, providers, and models are editable.
 
 All messages are room-visible. All/any/quorum are the implemented collection policies. Timeout cancels unfinished work for the affected request and pauses the room; deadlines continue while paused. Each provider also has a connection timeout. Reported usage is stored per attempt; monetary cost estimates and enforced token/cost budgets are not implemented.
 
-Signed-in browser-session transport, arbitrary roster sizes/activation, agent-chosen routing, assigned cross-review rounds, conference speaking queues, attachments, private threads, summaries, imports, backup tools, and installers remain planned. Remote acceptance/reconciliation is incomplete. The app never automatically retries live generations; an explicit retry may incur a second charge if the first request reached the provider. Stop aborts the local request, but a provider may continue processing or billing a request it already accepted.
+Signed-in browser-session transport, arbitrary roster sizes/activation, unrestricted agent send types, nested peer delegation, assigned cross-review rounds, conference speaking queues, attachments, private threads, summaries, imports, backup tools, and installers remain planned. Remote acceptance/reconciliation is incomplete. Provider/network failures are never automatically retried. A confirmed completed but invalid coordinator action can receive one new correction invocation within the reserved allowance; this may incur charges. Explicit retries may also incur another charge if the first request reached the provider. Stop aborts the local request, but a provider may continue processing or billing a request it already accepted.
 
 Initial limits are 12,000 characters per command, 20,000 per provider answer, and 64,000 per context snapshot. Oversized contexts are rejected explicitly; history is not silently truncated. The persistence layer is a transactional room-document store for a single service, with a separate SQLite writer lease. Multi-worker scheduling and large-history pagination are planned.
 
@@ -391,7 +396,7 @@ Implement domain contracts and a deterministic fake provider before live integra
 
 Contributions should explain the behavior changed, its reason, relevant failure cases, and validation. New routing or recovery behavior requires tests of its observable guarantees. No feature is complete solely because its happy path works once.
 
-TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration adds live API adapters and bounded relay. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
+TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
 
 ## Delivery milestones
 
@@ -406,7 +411,7 @@ TypeScript, React, Node 24, SQLite, and local browser operation were selected fo
 
 ## Complete implementation TODO checklist
 
-This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0/v0.2.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
+This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0/v0.2.0/v0.3.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
 
 ### 1. Product scope and decisions
 
@@ -732,3 +737,31 @@ This is the complete implementation checklist for the scope described above. Che
 - [ ] Preserve complete participant configuration revision history, including revisions never used in an invocation.
 - [ ] Extend model catalogs with provider-specific pagination and text-generation capability filtering.
 - [ ] Implement the separate signed-in browser-session transport and verify supported website/model combinations.
+
+### 22. v0.3.0 bounded agent discussions
+
+- [x] Add an explicit human grant selecting one coordinator, a peer-round limit, and a turn allowance.
+- [x] Reserve the entire discussion allowance before its first invocation and release unused turns on completion/cancellation.
+- [x] Count coordinator decisions, peer answers, correction attempts, and explicit retries against that allowance.
+- [x] Let the coordinator choose one or both peers and all/any/quorum collection through strict structured actions.
+- [x] Validate authorship, permitted peer IDs, distinct recipients, field limits, quorum, exact reply links, thread scope, and visible context before dispatch.
+- [x] Keep peer responses and quoted routing text from acquiring delegation permission.
+- [x] Require provider completion before accepting or dispatching a structured decision, keeping partial action JSON out of the transcript.
+- [x] Request native JSON Schema output through the implemented OpenAI, xAI, Gemini, Ollama, and compatible-server adapters and verify their protocol envelopes with fixtures.
+- [x] Offer one bounded correction for an invalid completed decision, with the original attempt retained and no automatic replay for network/provider failures.
+- [x] Freeze shared peer context and the exact collected answer set before coordinator continuation.
+- [x] Preserve targeted follow-ups, individual peer answers, provider usage, and accepted actions for inspection/export.
+- [x] Enforce finite peer rounds and turn capacity, detecting repeated questions to the same recipients.
+- [x] Cancel unfinished late respondents when the coordinator finishes.
+- [x] Add per-discussion Stop while retaining unrelated room work and releasing unused reservations.
+- [x] Persist discussion deadlines, grants, barriers, actions, and queued continuations for pause/stop/restart recovery without automatic replay.
+- [x] Verify a six-turn discussion with parallel peers and exact-message review through the browser using labeled live HTTP protocol fixtures.
+- [x] Verify discussion controls, reload, plain-text rendering, and narrow layouts through the browser.
+- [ ] Verify structured discussions against credentialed OpenAI/xAI/Gemini accounts and record exact model IDs/date.
+- [ ] Verify structured discussions against a real installed Ollama model and selected compatible servers.
+- [ ] Add explicit structured-output capability discovery or a dedicated coordinator capability test.
+- [ ] Add nested peer delegation with dependency-cycle detection and independent grants.
+- [ ] Add fair conference turn allocation and safe coordinator handoff during an active discussion.
+- [ ] Extend agent-authored contributions beyond questions/final results to the full typed-message design.
+- [ ] Add human correction/interjection policies that explicitly revise a discussion’s frozen context and obligations.
+- [ ] Add semantic progress checks and stalled-discussion detection beyond exact repeated questions and wall-clock deadlines.

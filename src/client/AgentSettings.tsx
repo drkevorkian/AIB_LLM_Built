@@ -35,7 +35,8 @@ export function AgentSettings({
   const [result, setResult] = useState('');
   const pending =
     room.jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
-    room.relays.some((r) => r.status === 'running' || r.status === 'blocked');
+    room.relays.some((r) => r.status === 'running' || r.status === 'blocked') ||
+    room.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status));
   useEffect(() => {
     let current = true;
     void api
@@ -97,6 +98,7 @@ export function AgentSettings({
         <label>
           Provider
           <select
+            aria-label="Provider"
             value={value.provider}
             onChange={(e) => {
               const provider = e.target.value as ProviderKind;

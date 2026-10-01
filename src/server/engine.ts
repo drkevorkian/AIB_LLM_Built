@@ -12,11 +12,18 @@ import type {
   SendInput,
   SendResult,
   ProviderStatus,
+  AgentAction,
+  Discussion,
 } from '../shared/contracts.js';
-import { agentSettingsSchema, createRoomSchema, sendSchema } from '../shared/contracts.js';
+import {
+  agentActionSchema,
+  agentSettingsSchema,
+  createRoomSchema,
+  sendSchema,
+} from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
-import { ProviderRefusal } from './providers.js';
+import { AgentActionError, ProviderError, ProviderRefusal } from './providers.js';
 import { RoomStore } from './store.js';
 
 interface EngineOptions {
@@ -87,6 +94,7 @@ export class ConversationEngine extends EventEmitter {
       snapshots: [],
       events: [],
       relays: [],
+      discussions: [],
     };
     this.audit(room, 'room.created', 'Room created with three simulated participants.');
     this.store.create(room);
@@ -115,7 +123,8 @@ export class ConversationEngine extends EventEmitter {
       if (
         room.jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
         this.connectionChecks.has(input.agentId) ||
-        room.relays.some((r) => ['running', 'blocked'].includes(r.status))
+        room.relays.some((r) => ['running', 'blocked'].includes(r.status)) ||
+        room.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status))
       )
         throw new AppError(
           409,
@@ -190,15 +199,23 @@ export class ConversationEngine extends EventEmitter {
 
   send(roomId: string, raw: SendInput): SendResult {
     const input = sendSchema.parse(raw);
-    const { relayOrder, ...legacyCommand } = input;
-    const commandHash = createHash('sha256')
-      .update(JSON.stringify(relayOrder.length ? input : legacyCommand))
-      .digest('hex');
+    const canonical = { ...input };
+    if (!input.relayOrder.length) delete (canonical as Partial<typeof input>).relayOrder;
+    if (!input.discussion) delete (canonical as Partial<typeof input>).discussion;
+    const commandHash = createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
     const previous = this.store.get(roomId).messages.find((m) => m.clientId === input.clientId);
     if (previous) {
       if (previous.commandHash !== commandHash)
         throw new AppError(409, 'Send ID already used for different content.');
-      return { messageId: previous.id, threadId: previous.threadId, requestId: previous.requestId };
+      const discussion = this.store
+        .get(roomId)
+        .discussions.find((d) => d.messageId === previous.id);
+      return {
+        messageId: previous.id,
+        threadId: previous.threadId,
+        requestId: previous.requestId,
+        ...(discussion ? { discussionId: discussion.id } : {}),
+      };
     }
     const result = this.store.mutate(roomId, (room) => {
       if (room.status === 'stopped')
@@ -227,6 +244,18 @@ export class ConversationEngine extends EventEmitter {
         if (input.relayOrder.some((id) => !agentIds.has(id)))
           throw new AppError(400, 'Unknown relay participant.');
       }
+      if (
+        input.discussion &&
+        (input.type !== 'question' ||
+          input.recipientIds.length !== 1 ||
+          input.synthesisAgentId ||
+          input.relayOrder.length ||
+          input.policy !== 'all')
+      )
+        throw new AppError(
+          400,
+          'A discussion is a question addressed to one coordinator, without a relay or separate synthesis.',
+        );
       if (input.type === 'update' && input.synthesisAgentId)
         throw new AppError(400, 'Updates cannot schedule synthesis.');
       if (input.synthesisAgentId && input.recipientIds.includes(input.synthesisAgentId))
@@ -250,7 +279,9 @@ export class ConversationEngine extends EventEmitter {
       }
       const needed =
         input.type === 'question'
-          ? input.relayOrder.length || input.recipientIds.length + (input.synthesisAgentId ? 1 : 0)
+          ? (input.discussion?.maxTurns ??
+            (input.relayOrder.length ||
+              input.recipientIds.length + (input.synthesisAgentId ? 1 : 0)))
           : 0;
       this.reserve(room, needed);
       const requestId = input.type === 'question' ? this.id() : null;
@@ -272,6 +303,7 @@ export class ConversationEngine extends EventEmitter {
         commandHash,
       };
       room.messages.push(message);
+      let discussionId: string | undefined;
       if (requestId) {
         const relevant = room.messages.filter(
           (m) => m.status === 'complete' && (m.threadId === threadId || m.type === 'update'),
@@ -295,6 +327,37 @@ export class ConversationEngine extends EventEmitter {
           closedAt: null,
         };
         room.requests.push(request);
+        if (input.discussion) {
+          discussionId = this.id();
+          request.discussionId = discussionId;
+          request.phase = 'decision';
+          room.discussions.push({
+            id: discussionId,
+            messageId: message.id,
+            threadId,
+            leaderId: input.recipientIds[0]!,
+            allowedPeerIds: room.agents
+              .filter((a) => a.id !== input.recipientIds[0])
+              .map((a) => a.id),
+            status: 'running',
+            maxRounds: input.discussion.maxRounds,
+            roundsUsed: 0,
+            maxTurns: input.discussion.maxTurns,
+            turnsUsed: 0,
+            deadlineSeconds: input.deadlineSeconds,
+            requestIds: [request.id],
+            roundRequestIds: [],
+            currentRequestId: request.id,
+            resultMessageId: null,
+            error: null,
+            askFingerprints: [],
+          });
+          this.audit(
+            room,
+            'discussion.started',
+            `Reserved ${input.discussion.maxTurns} turns and at most ${input.discussion.maxRounds} peer rounds for coordinator ${input.recipientIds[0]}.`,
+          );
+        }
         if (input.relayOrder.length) {
           const relayId = this.id();
           request.relayId = relayId;
@@ -317,14 +380,21 @@ export class ConversationEngine extends EventEmitter {
           );
         }
         for (const agentId of input.recipientIds)
-          room.jobs.push(this.job(request, agentId, 'answer', snapshot.id));
+          room.jobs.push(
+            this.job(request, agentId, input.discussion ? 'decision' : 'answer', snapshot.id),
+          );
       }
       this.audit(
         room,
         'message.sent',
         `${input.type} delivered to ${input.recipientIds.length} selected participants.`,
       );
-      return { messageId: message.id, threadId, requestId };
+      return {
+        messageId: message.id,
+        threadId,
+        requestId,
+        ...(discussionId ? { discussionId } : {}),
+      };
     });
     this.changed(roomId);
     return result;
@@ -334,6 +404,9 @@ export class ConversationEngine extends EventEmitter {
     this.store.mutate(roomId, (room) => {
       room.status = action === 'resume' ? 'running' : action === 'pause' ? 'paused' : 'stopped';
       if (action === 'stop') {
+        for (const discussion of room.discussions)
+          if (['running', 'waiting', 'blocked'].includes(discussion.status))
+            discussion.status = 'cancelled';
         for (const relay of room.relays)
           if (relay.status === 'running' || relay.status === 'blocked') relay.status = 'cancelled';
         for (const request of room.requests) {
@@ -358,6 +431,22 @@ export class ConversationEngine extends EventEmitter {
     this.changed(roomId);
   }
 
+  stopDiscussion(roomId: string, discussionId: string): void {
+    this.store.mutate(roomId, (room) => {
+      const discussion = room.discussions.find((d) => d.id === discussionId);
+      if (!discussion) throw new AppError(400, 'Unknown discussion.');
+      if (discussion.status === 'completed' || discussion.status === 'cancelled') return;
+      this.cancelDiscussion(room, discussion, 'Discussion stopped by the human.');
+      this.audit(
+        room,
+        'discussion.stopped',
+        `Discussion ${discussionId} stopped; unused reserved turns released.`,
+      );
+    });
+    this.abortCancelled(roomId);
+    this.changed(roomId);
+  }
+
   retry(roomId: string, jobId: string): void {
     this.store.mutate(roomId, (room) => {
       const previous = room.jobs.find((j) => j.id === jobId);
@@ -370,7 +459,7 @@ export class ConversationEngine extends EventEmitter {
         request.status === 'timed_out'
       )
         throw new AppError(409, 'Create a new question for cancelled or expired work.');
-      if (previous.kind === 'answer' && request.status === 'ready')
+      if (previous.kind !== 'synthesis' && request.status === 'ready')
         throw new AppError(409, 'This response set is closed. Ask a follow-up instead.');
       const chain = room.jobs.filter(
         (j) =>
@@ -379,13 +468,25 @@ export class ConversationEngine extends EventEmitter {
       if (chain.at(-1)?.id !== previous.id)
         throw new AppError(409, 'A newer attempt already exists.');
       if (chain.length >= 3) throw new AppError(409, 'Retry limit reached; create a new question.');
-      this.reserve(
-        room,
-        1 +
-          (previous.kind === 'answer' && request.status === 'unresolved' && request.synthesisAgentId
-            ? 1
-            : 0),
-      );
+      const discussion = room.discussions.find((d) => d.id === previous.discussionId);
+      if (discussion) {
+        if (discussion.status === 'completed' || discussion.status === 'cancelled')
+          throw new AppError(409, 'This discussion is closed. Start a new one.');
+        if (!this.discussionCapacity(room, discussion, previous.kind === 'answer' ? 2 : 1))
+          throw new AppError(
+            409,
+            'This retry exceeds the discussion turn allowance. Stop it and start a new discussion.',
+          );
+      } else
+        this.reserve(
+          room,
+          1 +
+            (previous.kind === 'answer' &&
+            request.status === 'unresolved' &&
+            request.synthesisAgentId
+              ? 1
+              : 0),
+        );
       if (previous.kind === 'synthesis') {
         const original = room.snapshots.find((s) => s.id === request.snapshotId)!;
         const included = request.includedMessageIds.map((id) =>
@@ -403,10 +504,16 @@ export class ConversationEngine extends EventEmitter {
           previousJobId: previous.id,
         });
       }
-      if (previous.kind === 'answer') {
+      if (previous.kind !== 'synthesis') {
         request.status = 'collecting';
         request.closedAt = null;
-        request.deadlineAt = new Date(this.now().getTime() + 120000).toISOString();
+        request.deadlineAt = new Date(
+          this.now().getTime() + (discussion?.deadlineSeconds ?? 120) * 1000,
+        ).toISOString();
+        if (discussion) {
+          discussion.status = previous.kind === 'decision' ? 'running' : 'waiting';
+          discussion.error = null;
+        }
         const relay = room.relays.find((r) => r.id === request.relayId);
         if (relay) {
           relay.status = 'running';
@@ -465,22 +572,38 @@ export class ConversationEngine extends EventEmitter {
       const snapshot = room.snapshots.find((s) => s.id === job.snapshotId)!;
       const agent = snapshot.agents.find((a) => a.id === job.agentId)!;
       const relay = room.relays.find((r) => r.id === request.relayId);
+      const discussion = room.discussions.find((d) => d.id === job.discussionId);
+      if (
+        discussion &&
+        (discussion.status === 'completed' ||
+          discussion.status === 'cancelled' ||
+          discussion.turnsUsed >= discussion.maxTurns)
+      ) {
+        this.cancelJob(room, job);
+        return;
+      }
       const prompt = room.messages.find(
-        (m) => m.id === (relay?.messageId ?? request.messageId),
+        (m) =>
+          m.id ===
+          (discussion && job.kind === 'decision'
+            ? discussion.messageId
+            : (relay?.messageId ?? request.messageId)),
       )!.body;
       job.status = 'running';
       job.startedAt = this.timestamp();
       job.attemptId = this.id();
       job.messageId = this.id();
       room.turnsUsed += 1;
+      if (discussion) discussion.turnsUsed += 1;
       room.messages.push({
         id: job.messageId,
         sequence: room.messages.length + 1,
         threadId: request.threadId,
         authorId: job.agentId,
-        recipientIds: ['human'],
+        recipientIds:
+          discussion && job.kind === 'answer' ? [discussion.leaderId, 'human'] : ['human'],
         visibility: 'room',
-        type: job.kind,
+        type: job.kind === 'decision' ? 'answer' : job.kind,
         body: '',
         status: 'streaming',
         replyTo: request.messageId,
@@ -488,24 +611,31 @@ export class ConversationEngine extends EventEmitter {
         snapshotId: snapshot.id,
         createdAt: this.timestamp(),
       });
-      const includedAnswers = (job.kind === 'synthesis' ? request.includedMessageIds : []).map(
-        (id) => {
-          const message = room.messages.find((m) => m.id === id)!;
-          return {
-            author: room.agents.find((a) => a.id === message.authorId)!.name,
-            body: message.body,
-          };
-        },
-      );
+      const sourceRequest = request.sourceRequestId
+        ? room.requests.find((r) => r.id === request.sourceRequestId)
+        : null;
+      const includedIds =
+        job.kind === 'synthesis'
+          ? request.includedMessageIds
+          : job.kind === 'decision'
+            ? (sourceRequest?.includedMessageIds ?? [])
+            : [];
+      const includedAnswers = includedIds.map((id) => {
+        const message = room.messages.find((m) => m.id === id)!;
+        return {
+          author: room.agents.find((a) => a.id === message.authorId)!.name,
+          body: message.body,
+        };
+      });
       const includedAuthorIds = new Set(
-        request.includedMessageIds.map((id) => room.messages.find((m) => m.id === id)!.authorId),
+        includedIds.map((id) => room.messages.find((m) => m.id === id)!.authorId),
       );
-      const expectedRespondents = request.recipientIds.map(
+      const expectedRespondents = (sourceRequest ?? request).recipientIds.map(
         (id) => room.agents.find((a) => a.id === id)!.name,
       );
       const missingRespondents =
-        job.kind === 'synthesis'
-          ? request.recipientIds
+        job.kind === 'synthesis' || sourceRequest
+          ? (sourceRequest ?? request).recipientIds
               .filter((id) => !includedAuthorIds.has(id))
               .map((id) => room.agents.find((a) => a.id === id)!.name)
           : [];
@@ -518,6 +648,22 @@ export class ConversationEngine extends EventEmitter {
         expectedRespondents,
         missingRespondents,
         ...(relay ? { relay: { step: request.relayStep!, total: relay.order.length } } : {}),
+        ...(discussion && job.kind === 'decision'
+          ? {
+              discussion: {
+                id: discussion.id,
+                allowedPeerIds: discussion.allowedPeerIds,
+                roundsUsed: discussion.roundsUsed,
+                maxRounds: discussion.maxRounds,
+                turnsRemaining:
+                  discussion.maxTurns -
+                  discussion.turnsUsed -
+                  room.jobs.filter((j) => j.discussionId === discussion.id && j.status === 'queued')
+                    .length,
+                ...(job.repairReason ? { repairReason: job.repairReason } : {}),
+              },
+            }
+          : {}),
       };
       claimedAgentId = agent.id;
     });
@@ -534,11 +680,18 @@ export class ConversationEngine extends EventEmitter {
     signal: AbortSignal,
   ): Promise<void> {
     let completed = false;
+    let pendingAction: unknown;
+    let actionCount = 0;
     try {
       for await (const event of this.provider.generate(input, signal)) {
         if (this.closed || signal.aborted) break;
         if (event.type === 'refused') throw new ProviderRefusal(event.reason);
-        if (event.type === 'metadata') {
+        if (event.type === 'action') {
+          if (input.kind !== 'decision')
+            throw new ProviderError('Peer answers cannot dispatch actions.');
+          pendingAction = event.action;
+          actionCount += 1;
+        } else if (event.type === 'metadata') {
           this.store.mutate(roomId, (room) => {
             const job = room.jobs.find((j) => j.id === jobId)!;
             if (job.status !== 'running') return;
@@ -546,6 +699,7 @@ export class ConversationEngine extends EventEmitter {
             if (event.usage) job.usage = event.usage;
           });
         } else if (event.type === 'delta') {
+          if (input.kind === 'decision') continue;
           this.store.mutate(roomId, (room) => {
             const job = room.jobs.find((j) => j.id === jobId)!;
             if (job.status !== 'running') return;
@@ -560,6 +714,14 @@ export class ConversationEngine extends EventEmitter {
             const job = room.jobs.find((j) => j.id === jobId)!;
             if (job.status !== 'running') return;
             const message = room.messages.find((m) => m.id === job.messageId)!;
+            if (job.kind === 'decision') {
+              if (actionCount !== 1)
+                throw new AgentActionError(
+                  'Return exactly one complete action object per decision.',
+                );
+              this.completeDecision(room, job, pendingAction);
+              return;
+            }
             if (!message.body.trim()) throw new Error('Provider returned an empty answer.');
             message.status = 'complete';
             job.status = 'completed';
@@ -567,6 +729,7 @@ export class ConversationEngine extends EventEmitter {
             this.collect(room, job.requestId);
           });
           completed = true;
+          this.abortCancelled(roomId);
           this.changed(roomId);
           break;
         }
@@ -584,7 +747,12 @@ export class ConversationEngine extends EventEmitter {
           job.error = error instanceof Error ? error.message.slice(0, 300) : 'Provider failed.';
           room.messages.find((m) => m.id === job.messageId)!.status =
             error instanceof ProviderRefusal ? 'refused' : 'failed';
-          this.collect(room, job.requestId);
+          if (!(
+            error instanceof AgentActionError &&
+            job.kind === 'decision' &&
+            this.repairDecision(room, job)
+          ))
+            this.collect(room, job.requestId);
           this.audit(room, 'job.failed', `Attempt ${job.attemptId} failed.`);
         });
         this.changed(roomId);
@@ -597,9 +765,10 @@ export class ConversationEngine extends EventEmitter {
   private collect(room: Room, requestId: string): void {
     const request = room.requests.find((r) => r.id === requestId)!;
     if (request.status !== 'collecting') return;
+    const kind = request.phase === 'decision' ? 'decision' : 'answer';
     const latest = request.recipientIds.map((id) =>
       room.jobs
-        .filter((j) => j.requestId === requestId && j.agentId === id && j.kind === 'answer')
+        .filter((j) => j.requestId === requestId && j.agentId === id && j.kind === kind)
         .at(-1)!,
     );
     const completed = latest.filter((j) => j.status === 'completed');
@@ -610,6 +779,8 @@ export class ConversationEngine extends EventEmitter {
       request.closedAt = this.timestamp();
       request.includedMessageIds = completed.map((j) => j.messageId!);
       if (request.relayId) this.advanceRelay(room, request);
+      if (request.discussionId && request.phase === 'consultation')
+        this.advanceDiscussion(room, request);
       if (request.synthesisAgentId) {
         const original = room.snapshots.find((s) => s.id === request.snapshotId)!;
         const included = request.includedMessageIds.map((id) =>
@@ -645,8 +816,288 @@ export class ConversationEngine extends EventEmitter {
           latest.find((j) => j.error)?.error ??
           'Relay requires a completed answer before advancing.';
       }
+      const discussion = room.discussions.find((d) => d.id === request.discussionId);
+      if (discussion && discussion.status !== 'cancelled' && discussion.status !== 'completed') {
+        discussion.status = 'blocked';
+        discussion.error =
+          latest.find((j) => j.error)?.error ?? 'Required completed answers were not received.';
+      }
       this.audit(room, 'request.unresolved', 'Required eligible answers were not received.');
     }
+  }
+
+  private validateAction(room: Room, job: Job, raw: unknown): AgentAction {
+    const parsed = agentActionSchema.safeParse(raw);
+    if (!parsed.success)
+      throw new AgentActionError(
+        'Use exactly the six action fields with valid types and a nonempty body.',
+      );
+    const action = parsed.data;
+    const discussion = room.discussions.find((d) => d.id === job.discussionId)!;
+    if (job.agentId !== discussion.leaderId)
+      throw new AgentActionError('Only the selected coordinator can ask peers.');
+    if (action.kind === 'finish') {
+      if (
+        action.recipientIds.length ||
+        action.policy !== 'all' ||
+        action.quorum !== 1 ||
+        action.replyTo !== null
+      )
+        throw new AgentActionError(
+          'For finish use recipientIds [], policy all, quorum 1, and replyTo null.',
+        );
+      return action;
+    }
+    if (
+      !action.recipientIds.length ||
+      new Set(action.recipientIds).size !== action.recipientIds.length ||
+      action.recipientIds.some((id) => !discussion.allowedPeerIds.includes(id))
+    )
+      throw new AgentActionError(
+        'Ask one or more distinct allowed peer IDs; never the coordinator, human, or an unknown ID.',
+      );
+    if (action.body.length > 12000)
+      throw new AgentActionError('Peer questions must be at most 12,000 characters.');
+    if (action.policy === 'quorum' && action.quorum > action.recipientIds.length)
+      throw new AgentActionError('Quorum cannot exceed the selected peer count.');
+    if (discussion.roundsUsed >= discussion.maxRounds)
+      throw new AgentActionError(
+        'The peer round limit is reached. Return finish with the evidence already collected.',
+      );
+    if (!this.discussionCapacity(room, discussion, action.recipientIds.length + 1))
+      throw new AgentActionError(
+        'The remaining allowance cannot cover these peers and your next decision. Finish or ask fewer peers.',
+      );
+    if (action.replyTo) {
+      const snapshot = room.snapshots.find((s) => s.id === job.snapshotId)!;
+      const source = room.messages.find((m) => m.id === action.replyTo);
+      if (
+        !source ||
+        source.status !== 'complete' ||
+        source.threadId !== discussion.threadId ||
+        !snapshot.messages.some((m) => m.id === source.id)
+      )
+        throw new AgentActionError(
+          'replyTo must identify a completed message in this thread and your supplied context.',
+        );
+      if (
+        source.authorId !== 'human' &&
+        source.authorId !== discussion.leaderId &&
+        !action.recipientIds.includes(source.authorId)
+      )
+        throw new AgentActionError(
+          'A follow-up to a peer answer must include that peer as a recipient.',
+        );
+    }
+    if (discussion.askFingerprints.includes(this.askFingerprint(action)))
+      throw new AgentActionError(
+        'This question and recipient set already ran. Ask a different question or finish.',
+      );
+    return action;
+  }
+
+  /** One completed, authorized decision commits the visible message and its next jobs together. */
+  private completeDecision(room: Room, job: Job, raw: unknown): void {
+    const action = this.validateAction(room, job, raw);
+    const discussion = room.discussions.find((d) => d.id === job.discussionId)!;
+    const request = room.requests.find((r) => r.id === job.requestId)!;
+    const message = room.messages.find((m) => m.id === job.messageId)!;
+    message.body = action.body;
+    message.type = action.kind === 'ask' ? 'question' : 'answer';
+    message.status = 'complete';
+    message.recipientIds = action.kind === 'ask' ? action.recipientIds : ['human'];
+    if (action.replyTo) message.replyTo = action.replyTo;
+    job.agentAction = action;
+    job.status = 'completed';
+    job.endedAt = this.timestamp();
+    request.status = 'ready';
+    request.closedAt = this.timestamp();
+    request.includedMessageIds = [message.id];
+    discussion.error = null;
+    if (action.kind === 'finish') {
+      discussion.status = 'completed';
+      discussion.resultMessageId = message.id;
+      // Late any/quorum respondents cannot prolong a finished discussion or use released turns.
+      this.cancelDiscussionJobs(room, discussion);
+      this.audit(
+        room,
+        'discussion.completed',
+        `Coordinator ${discussion.leaderId} finished after ${discussion.roundsUsed} peer rounds and ${discussion.turnsUsed} turns.`,
+      );
+      return;
+    }
+    const original = room.snapshots.find((s) => s.id === job.snapshotId)!;
+    let snapshot: ContextSnapshot;
+    try {
+      snapshot = this.snapshot(room, [...original.messages, message]);
+    } catch (error) {
+      if (!(error instanceof AppError) || error.status !== 413) throw error;
+      discussion.status = 'blocked';
+      discussion.error =
+        'Peer context exceeds the 64,000-character limit. Stop this discussion and start a shorter thread.';
+      this.audit(room, 'discussion.blocked', discussion.error);
+      return;
+    }
+    snapshot.agents = structuredClone(original.agents);
+    room.snapshots.push(snapshot);
+    const round = this.discussionRequest(
+      discussion,
+      message.id,
+      snapshot.id,
+      action.recipientIds,
+      'consultation',
+    );
+    round.policy = action.policy;
+    round.quorum = action.quorum;
+    room.requests.push(round);
+    discussion.requestIds.push(round.id);
+    discussion.roundRequestIds.push(round.id);
+    discussion.currentRequestId = round.id;
+    discussion.roundsUsed += 1;
+    discussion.askFingerprints.push(this.askFingerprint(action));
+    discussion.status = 'waiting';
+    message.requestId = round.id;
+    for (const agentId of action.recipientIds)
+      room.jobs.push(this.job(round, agentId, 'answer', snapshot.id));
+    this.audit(
+      room,
+      'discussion.asked',
+      `${discussion.leaderId} asked ${action.recipientIds.join(', ')} under ${action.policy}; round ${discussion.roundsUsed}/${discussion.maxRounds}.`,
+    );
+  }
+
+  private advanceDiscussion(room: Room, round: Request): void {
+    const discussion = room.discussions.find((d) => d.id === round.discussionId)!;
+    if (discussion.status !== 'waiting' || discussion.currentRequestId !== round.id) return;
+    const original = room.snapshots.find((s) => s.id === round.snapshotId)!;
+    try {
+      if (!this.discussionCapacity(room, discussion, 1))
+        throw new AppError(413, 'Discussion turn allowance is exhausted.');
+      const included = round.includedMessageIds.map((id) =>
+        room.messages.find((m) => m.id === id)!,
+      );
+      const snapshot = this.snapshot(room, [...original.messages, ...included]);
+      snapshot.agents = structuredClone(original.agents);
+      room.snapshots.push(snapshot);
+      const next = this.discussionRequest(
+        discussion,
+        round.messageId,
+        snapshot.id,
+        [discussion.leaderId],
+        'decision',
+      );
+      next.sourceRequestId = round.id;
+      room.requests.push(next);
+      room.jobs.push(this.job(next, discussion.leaderId, 'decision', snapshot.id));
+      discussion.requestIds.push(next.id);
+      discussion.currentRequestId = next.id;
+      discussion.status = 'running';
+      this.audit(
+        room,
+        'discussion.collected',
+        `Closed peer set ${round.id}; coordinator continuation queued with ${included.length} attributed answers.`,
+      );
+    } catch (error) {
+      if (!(error instanceof AppError) || error.status !== 413) throw error;
+      discussion.status = 'blocked';
+      discussion.error =
+        'The continuation exceeds the context or turn limit. Completed answers are preserved. Stop this discussion and start a shorter one.';
+      this.audit(room, 'discussion.blocked', discussion.error);
+    }
+  }
+
+  private discussionRequest(
+    discussion: Discussion,
+    messageId: string,
+    snapshotId: string,
+    recipientIds: string[],
+    phase: 'decision' | 'consultation',
+  ): Request {
+    return {
+      id: this.id(),
+      messageId,
+      snapshotId,
+      recipientIds,
+      threadId: discussion.threadId,
+      discussionId: discussion.id,
+      phase,
+      policy: 'all',
+      quorum: 1,
+      synthesisAgentId: null,
+      status: 'collecting',
+      includedMessageIds: [],
+      createdAt: this.timestamp(),
+      closedAt: null,
+      deadlineAt: new Date(this.now().getTime() + discussion.deadlineSeconds * 1000).toISOString(),
+    };
+  }
+
+  private repairDecision(room: Room, previous: Job): boolean {
+    const discussion = room.discussions.find((d) => d.id === previous.discussionId)!;
+    const request = room.requests.find((r) => r.id === previous.requestId)!;
+    if (
+      request.status !== 'collecting' ||
+      room.jobs.some((j) => j.requestId === request.id && j.repairReason) ||
+      !this.discussionCapacity(room, discussion, 1)
+    )
+      return false;
+    room.jobs.push({
+      ...this.job(request, previous.agentId, 'decision', previous.snapshotId),
+      previousJobId: previous.id,
+      repairReason: previous.error!,
+    });
+    discussion.status = 'running';
+    this.audit(
+      room,
+      'discussion.action_repair',
+      'One correction attempt queued for an invalid completed action; it consumes the reserved turn allowance.',
+    );
+    return true;
+  }
+
+  private discussionCapacity(room: Room, discussion: Discussion, needed: number): boolean {
+    return (
+      discussion.turnsUsed +
+        room.jobs.filter((j) => j.discussionId === discussion.id && j.status === 'queued').length +
+        needed <=
+      discussion.maxTurns
+    );
+  }
+
+  private askFingerprint(action: AgentAction): string {
+    return createHash('sha256')
+      .update(
+        JSON.stringify([
+          action.body.replace(/\s+/g, ' ').toLowerCase(),
+          [...action.recipientIds].sort(),
+          action.policy,
+          action.policy === 'quorum' ? action.quorum : 1,
+        ]),
+      )
+      .digest('hex');
+  }
+
+  private cancelDiscussionJobs(room: Room, discussion: Discussion): void {
+    for (const request of room.requests) {
+      if (request.discussionId === discussion.id && request.status === 'collecting') {
+        request.status = 'cancelled';
+        request.closedAt = this.timestamp();
+      }
+    }
+    for (const job of room.jobs) if (job.discussionId === discussion.id) this.cancelJob(room, job);
+  }
+
+  private cancelDiscussion(room: Room, discussion: Discussion, reason: string): void {
+    discussion.status = 'cancelled';
+    discussion.error = reason;
+    this.cancelDiscussionJobs(room, discussion);
+  }
+
+  private abortCancelled(roomId: string): void {
+    const room = this.store.get(roomId);
+    for (const [jobId, task] of this.active)
+      if (task.roomId === roomId && room.jobs.find((j) => j.id === jobId)?.status === 'cancelled')
+        task.abort.abort();
   }
 
   /** Completion and scheduling of the next exact-message hop commit atomically. */
@@ -722,6 +1173,13 @@ export class ConversationEngine extends EventEmitter {
           relay.status = 'cancelled';
           relay.error = 'Relay cancelled after its response deadline.';
         }
+        const discussion = room.discussions.find((d) => d.id === request.discussionId);
+        if (discussion)
+          this.cancelDiscussion(
+            room,
+            discussion,
+            'Discussion cancelled after its response deadline.',
+          );
         request.includedMessageIds = room.jobs
           .filter(
             (j) => j.requestId === request.id && j.kind === 'answer' && j.status === 'completed',
@@ -729,7 +1187,8 @@ export class ConversationEngine extends EventEmitter {
           .map((j) => j.messageId!);
       }
       for (const job of room.jobs) {
-        if (ids.has(job.requestId) && this.cancelJob(room, job)) cancelled.push(job.id);
+        if (ids.has(job.requestId)) this.cancelJob(room, job);
+        if (job.status === 'cancelled') cancelled.push(job.id);
       }
       this.audit(
         room,
@@ -745,7 +1204,8 @@ export class ConversationEngine extends EventEmitter {
     for (const initial of this.store.all()) {
       if (
         !initial.jobs.some((j) => j.status === 'running' || j.status === 'queued') &&
-        !initial.relays.some((r) => r.status === 'running' || r.status === 'blocked')
+        !initial.relays.some((r) => r.status === 'running' || r.status === 'blocked') &&
+        !initial.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status))
       )
         continue;
       this.store.mutate(initial.id, (room) => {
@@ -778,11 +1238,14 @@ export class ConversationEngine extends EventEmitter {
 
   private reserve(room: Room, needed: number): void {
     const reserved =
-      room.jobs.filter((j) => j.status === 'queued').length +
+      room.jobs.filter((j) => j.status === 'queued' && !j.discussionId).length +
       room.requests.filter((r) => r.status === 'collecting' && r.synthesisAgentId).length +
       room.relays
         .filter((r) => r.status === 'running' || r.status === 'blocked')
-        .reduce((n, r) => n + r.order.length - r.requestIds.length, 0);
+        .reduce((n, r) => n + r.order.length - r.requestIds.length, 0) +
+      room.discussions
+        .filter((d) => ['running', 'waiting', 'blocked'].includes(d.status))
+        .reduce((n, d) => n + d.maxTurns - d.turnsUsed, 0);
     if (room.turnsUsed + reserved + needed > room.maxTurns)
       throw new AppError(
         409,
@@ -824,6 +1287,7 @@ export class ConversationEngine extends EventEmitter {
       createdAt: this.timestamp(),
       startedAt: null,
       endedAt: null,
+      ...(request.discussionId ? { discussionId: request.discussionId } : {}),
     };
   }
 

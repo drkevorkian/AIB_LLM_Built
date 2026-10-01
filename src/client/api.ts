@@ -76,6 +76,12 @@ export const api = {
   retry: async (id: string, jobId: string) => {
     await request(`/rooms/${id}/retry`, { method: 'POST', body: JSON.stringify({ jobId }) });
   },
+  stopDiscussion: async (id: string, discussionId: string) => {
+    await request(`/rooms/${id}/discussion-stop`, {
+      method: 'POST',
+      body: JSON.stringify({ discussionId }),
+    });
+  },
   export: async (id: string) => (await request(`/rooms/${id}/export`)).text(),
 };
 
