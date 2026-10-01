@@ -353,6 +353,96 @@ test('a failed formatting module preserves readable source, copying, and convers
   await expect(page.locator('.budget-card')).toContainText('0 / 100');
 });
 
+test('a delayed post-send refresh preserves the next draft and keeps consecutive messages in the accepted thread', async ({
+  page,
+}) => {
+  const title = await createRoom(page);
+  const { room, headers } = await workspaceRecord(page, title);
+  const roomUrl = new RegExp('/api/rooms/' + room.id + '$');
+  let release!: () => void;
+  let gate = new Promise<void>((done) => {
+    release = done;
+  });
+  await page.route(roomUrl, async (route) => {
+    if (route.request().method() === 'GET') await gate;
+    await route.continue();
+  });
+  try {
+    await page.getByLabel('Message type').selectOption('update');
+    await page.getByLabel('Message', { exact: true }).fill('First accepted update.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.getByLabel('Message', { exact: true })).toHaveValue('');
+    await page
+      .getByLabel('Message', { exact: true })
+      .fill('Draft typed while the history refresh waits.');
+    await expect(page.locator('.send-button')).toBeDisabled();
+    const accepted = (await (
+      await page.request.get(`/api/rooms/${room.id}`, { headers })
+    ).json()) as Room;
+    expect(accepted.messages).toHaveLength(1);
+    release();
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+    await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+      'Draft typed while the history refresh waits.',
+    );
+    await expect(
+      page.getByRole('heading', { name: accepted.threads[0]!.title, exact: true, level: 1 }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.locator('.message.update')).toHaveCount(2);
+    const final = (await (
+      await page.request.get(`/api/rooms/${room.id}`, { headers })
+    ).json()) as Room;
+    expect(final.threads).toHaveLength(1);
+    expect(final.messages.map((message) => message.threadId)).toEqual([
+      accepted.threads[0]!.id,
+      accepted.threads[0]!.id,
+    ]);
+    expect(final.messages[1]!.body).toBe('Draft typed while the history refresh waits.');
+    expect(final.turnsUsed).toBe(0);
+
+    await page.getByRole('button', { name: 'All messages' }).click();
+    await page.getByLabel('Message', { exact: true }).fill('Another retained thread.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.locator('.thread-entry')).toHaveCount(2);
+    await expect(page.locator('.send-button')).toHaveText('Send');
+    gate = new Promise<void>((done) => {
+      release = done;
+    });
+    await page
+      .getByLabel('Message', { exact: true })
+      .fill('An acknowledged update before changing threads.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.getByLabel('Message', { exact: true })).toHaveValue('');
+    await expect(page.locator('.send-button')).toHaveText('Updating…');
+    await page
+      .locator('.thread-entry')
+      .filter({ hasText: accepted.threads[0]!.title })
+      .locator('button')
+      .first()
+      .click();
+    await page.getByLabel('Message', { exact: true }).fill('Draft for the chosen earlier thread.');
+    release();
+    await expect(page.locator('.send-button')).toBeEnabled();
+    await expect(
+      page.getByRole('heading', { name: accepted.threads[0]!.title, exact: true, level: 1 }),
+    ).toBeVisible();
+    await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+      'Draft for the chosen earlier thread.',
+    );
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.locator('.message.update')).toHaveCount(3);
+    const selected = (await (
+      await page.request.get(`/api/rooms/${room.id}`, { headers })
+    ).json()) as Room;
+    expect(selected.messages).toHaveLength(5);
+    expect(selected.messages.at(-1)!.threadId).toBe(accepted.threads[0]!.id);
+  } finally {
+    release();
+    if (!page.isClosed()) await page.unroute(roomUrl);
+  }
+});
+
 test('split Markdown streams, completed answers, and failed partial code retain their exact provider source', async ({
   page,
   context,
@@ -969,8 +1059,8 @@ test('thread deletion confirms the target, cancels an active discussion, preserv
   await page.getByLabel('Message type').selectOption('update');
   await page.getByLabel('Message', { exact: true }).fill('Continue after deleting that thread.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('.message.update')).toHaveCount(2);
   await page.getByRole('button', { name: 'All messages' }).click();
+  await expect(page.locator('.message.update')).toHaveCount(2);
   await page.getByLabel('Message type').selectOption('question');
   await page
     .getByLabel('Message', { exact: true })

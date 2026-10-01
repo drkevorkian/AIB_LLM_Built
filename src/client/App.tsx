@@ -105,9 +105,13 @@ export function App() {
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('active');
   const [threadSearch, setThreadSearch] = useState('');
   const [roomId, setRoomId] = useState<string | null>(null);
+  const selectedRoomId = useRef<string | null>(null);
+  selectedRoomId.current = roomId;
   const [loadedRoom, setRoom] = useState<Room | null>(null);
   const room = loadedRoom?.id === roomId ? loadedRoom : null;
   const [threadId, setThreadId] = useState<string | null>(null);
+  const selectedThreadId = useRef<string | null>(null);
+  selectedThreadId.current = threadId;
   const [tick, setTick] = useState(0);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState('');
@@ -774,11 +778,26 @@ export function App() {
               threadId={threadId}
               reply={reply}
               onClearReply={() => setReply(null)}
-              onSent={(id) => {
-                setThreadId(id);
-                setReply(null);
-                setTick((v) => v + 1);
-                follow.current = true;
+              onSent={async (id) => {
+                const priorThread = selectedThreadId.current;
+                if (selectedRoomId.current === room.id) {
+                  setReply(null);
+                  follow.current = true;
+                }
+                try {
+                  const next = await api.room(room.id);
+                  if (selectedRoomId.current !== room.id) return;
+                  setRoom((current) =>
+                    current?.id === next.id && current.revision > next.revision ? current : next,
+                  );
+                  if (selectedThreadId.current === priorThread)
+                    setThreadId(next.threads.some((thread) => thread.id === id) ? id : null);
+                } catch {
+                  if (selectedRoomId.current === room.id)
+                    setError('Message saved. Refresh the workspace to load its updated history.');
+                } finally {
+                  setTick((value) => value + 1);
+                }
               }}
               onError={setError}
             />
@@ -1280,11 +1299,12 @@ function Composer({
   threadId: string | null;
   reply: Message | null;
   onClearReply: () => void;
-  onSent: (threadId: string) => void;
+  onSent: (threadId: string) => Promise<void>;
   onError: (error: string) => void;
 }) {
   const activeAgents = room.agents.filter(isAgentActive);
   const [body, setBody] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
   const [recipients, setRecipients] = useState(() =>
     (activeAgents.length > 1 ? activeAgents.slice(1) : activeAgents).map((a) => a.id),
   );
@@ -1350,7 +1370,14 @@ function Composer({
     (type === 'discussion' && !leaderId);
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (sending || !body.trim() || room.archivedAt || room.status === 'stopped' || invalidRouting)
+    if (
+      sending ||
+      refreshing ||
+      !body.trim() ||
+      room.archivedAt ||
+      room.status === 'stopped' ||
+      invalidRouting
+    )
       return;
     setSending(true);
     onError('');
@@ -1378,11 +1405,14 @@ function Composer({
       setBody('');
       setRosterChanged(false);
       clientId.current = null;
-      onSent(result.threadId);
+      setRefreshing(true);
+      setSending(false);
+      await onSent(result.threadId);
     } catch (e) {
       onError(errorText(e));
     } finally {
       setSending(false);
+      setRefreshing(false);
     }
   }
   return (
@@ -1647,9 +1677,17 @@ function Composer({
           <button
             className="primary send-button"
             type="submit"
-            disabled={sending || !body.trim() || room.status === 'stopped' || invalidRouting}
+            disabled={
+              sending || refreshing || !body.trim() || room.status === 'stopped' || invalidRouting
+            }
           >
-            {sending ? 'Sending…' : room.status === 'paused' ? 'Queue' : 'Send'}
+            {sending
+              ? 'Sending…'
+              : refreshing
+                ? 'Updating…'
+                : room.status === 'paused'
+                  ? 'Queue'
+                  : 'Send'}
             <Glyph kind="send" size={15} />
           </button>
         </div>

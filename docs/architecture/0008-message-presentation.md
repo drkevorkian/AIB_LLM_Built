@@ -22,6 +22,8 @@ While `status` is streaming, the client displays the current body literally with
 
 The formatter is loaded as a separate application chunk and unchanged formatted bodies are memoized. A pending module load shows literal source. A rendering/module failure is caught per message and keeps literal source, a short explanation, conversation controls, and whole-message copying available. Fix the load problem and reload to retry; no invisible provider retry accompanies presentation recovery. Source selection and copy feedback are per-view rather than persisted settings.
 
+After a send is acknowledged, the composer clears the sent body and remains busy while loading authoritative workspace history. It selects the accepted thread together with that history, preventing a stale room document from clearing a new thread selection. A draft typed during this refresh is retained, and a thread chosen explicitly during the wait stays selected. A response for a workspace the user has left cannot select a thread in their new workspace. A refresh failure does not resend the acknowledged message.
+
 Context inspection intentionally remains a literal source view. Search previews also stay literal and bounded. Markdown exports contain original source rather than rendered HTML; a separate viewer must enforce its own safety policy.
 
 ## Clipboard
