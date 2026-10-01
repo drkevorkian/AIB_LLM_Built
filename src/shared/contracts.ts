@@ -5,6 +5,30 @@ export const idSchema = z
   .min(1)
   .max(100)
   .regex(/^[a-zA-Z0-9_-]+$/);
+export const providerSchema = z.enum([
+  'simulated',
+  'openai',
+  'xai',
+  'gemini',
+  'ollama',
+  'openai-compatible',
+]);
+export const agentSettingsSchema = z.strictObject({
+  agentId: idSchema,
+  name: z.string().trim().min(1).max(60),
+  role: z.string().trim().min(1).max(3000),
+  provider: providerSchema,
+  model: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/^[a-zA-Z0-9_.:/-]+$/),
+  baseUrl: z.string().trim().max(2000).default(''),
+  maxOutputTokens: z.number().int().min(128).max(16384).default(4096),
+  timeoutSeconds: z.number().int().min(5).max(600).default(180),
+});
+export const connectionTestSchema = z.strictObject({ agentId: idSchema });
 export const createRoomSchema = z.strictObject({
   title: z.string().trim().min(1).max(100),
   objective: z.string().trim().max(3000).default(''),
@@ -21,11 +45,25 @@ export const sendSchema = z.strictObject({
   threadId: idSchema.nullable().default(null),
   replyTo: idSchema.nullable().default(null),
   deadlineSeconds: z.number().int().min(5).max(600).default(120),
+  relayOrder: z.array(idSchema).max(12).default([]),
 });
 export const controlSchema = z.strictObject({ action: z.enum(['pause', 'resume', 'stop']) });
 export const retrySchema = z.strictObject({ jobId: idSchema });
 export type CreateRoomInput = z.infer<typeof createRoomSchema>;
-export type SendInput = z.infer<typeof sendSchema>;
+export type SendInput = z.input<typeof sendSchema>;
+export type AgentSettingsInput = z.input<typeof agentSettingsSchema>;
+export type ProviderKind = z.infer<typeof providerSchema>;
+export interface ProviderStatus {
+  id: ProviderKind;
+  name: string;
+  keyEnvironment: string | null;
+  configured: boolean;
+}
+export interface TokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
 export type RoomStatus = 'running' | 'paused' | 'stopped';
 export type JobStatus =
   'queued' | 'running' | 'completed' | 'failed' | 'refused' | 'cancelled' | 'interrupted';
@@ -37,8 +75,12 @@ export interface Agent {
   id: string;
   name: string;
   role: string;
-  provider: 'simulated';
-  model: 'simulation-v1';
+  provider: ProviderKind;
+  model: string;
+  baseUrl?: string;
+  maxOutputTokens?: number;
+  timeoutSeconds?: number;
+  configRevision?: number;
   color: 'teal' | 'amber' | 'violet';
 }
 export interface Thread {
@@ -85,6 +127,8 @@ export interface Request {
   createdAt: string;
   deadlineAt: string;
   closedAt: string | null;
+  relayId?: string;
+  relayStep?: number;
 }
 export interface Job {
   id: string;
@@ -100,6 +144,19 @@ export interface Job {
   createdAt: string;
   startedAt: string | null;
   endedAt: string | null;
+  providerRequestId?: string;
+  usage?: TokenUsage;
+}
+export interface Relay {
+  id: string;
+  messageId: string;
+  threadId: string;
+  order: string[];
+  requestIds: string[];
+  completedSteps: number;
+  status: 'running' | 'completed' | 'blocked' | 'cancelled';
+  deadlineSeconds: number;
+  error: string | null;
 }
 export interface AuditEvent {
   id: string;
@@ -125,6 +182,7 @@ export interface Room {
   jobs: Job[];
   snapshots: ContextSnapshot[];
   events: AuditEvent[];
+  relays: Relay[];
 }
 export type RoomSummary = Pick<
   Room,

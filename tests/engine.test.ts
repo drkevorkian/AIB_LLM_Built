@@ -339,3 +339,251 @@ test('a second application cannot acquire the same database writer lease', () =>
   reopened.close();
   rmSync(directory, { recursive: true, force: true });
 });
+
+test('automatic relay preserves A-C-B-A order, exact reply links, and cumulative frozen context', async (t) => {
+  const f = setup();
+  t.after(f.close);
+  const order = [f.a.id, f.c.id, f.b.id, f.a.id];
+  f.engine.send(f.room.id, command([f.a.id], { relayOrder: order }));
+  for (let i = 0; i < order.length; i++) {
+    f.engine.pump();
+    assert.equal(f.provider.inputs.length, i + 1);
+    const invocation = f.provider.inputs[i]!;
+    assert.equal(invocation.agent.id, order[i]);
+    assert.deepEqual(invocation.relay, { step: i, total: 4 });
+    assert.equal(invocation.snapshot.messages.length, i + 1);
+    assert.equal(invocation.prompt, 'Investigate duplicate delivery.');
+    f.provider.releases[i]!();
+    await until(() => f.store.get(f.room.id).relays[0]!.completedSteps === i + 1);
+  }
+  const final = f.store.get(f.room.id);
+  assert.equal(final.relays[0]!.status, 'completed');
+  assert.equal(final.turnsUsed, 4);
+  assert.equal(final.requests.length, 4);
+  const answers = final.messages.filter((m) => m.type === 'answer');
+  assert.deepEqual(
+    answers.map((m) => m.authorId),
+    order,
+  );
+  for (let i = 1; i < answers.length; i++) {
+    assert.equal(answers[i]!.replyTo, answers[i - 1]!.id);
+    assert.deepEqual(answers[i - 1]!.recipientIds, [order[i]!, 'human']);
+  }
+  assert.deepEqual(answers.at(-1)!.recipientIds, ['human']);
+});
+
+test('relay failures block the next hop; an explicit retry advances only once and retains the failure', async (t) => {
+  const f = setup();
+  t.after(f.close);
+  f.provider.endings = ['fail', 'complete', 'complete'];
+  f.engine.send(f.room.id, command([f.a.id], { relayOrder: [f.a.id, f.b.id] }));
+  f.engine.pump();
+  f.provider.releases[0]!();
+  await until(() => f.store.get(f.room.id).relays[0]!.status === 'blocked');
+  f.engine.pump();
+  assert.equal(f.provider.inputs.length, 1);
+  f.engine.retry(f.room.id, f.store.get(f.room.id).jobs[0]!.id);
+  f.engine.pump();
+  f.provider.releases[1]!();
+  await until(() => f.store.get(f.room.id).relays[0]!.completedSteps === 1);
+  f.engine.pump();
+  assert.equal(f.provider.inputs[2]!.agent.id, f.b.id);
+  assert.equal(f.provider.inputs[2]!.snapshot.messages.length, 2);
+  assert.ok(!f.provider.inputs[2]!.snapshot.messages.some((m) => m.body.endsWith('answer 0.')));
+  f.provider.releases[2]!();
+  await until(() => f.store.get(f.room.id).relays[0]!.status === 'completed');
+  const final = f.store.get(f.room.id);
+  assert.equal(final.jobs[0]!.status, 'failed');
+  assert.equal(final.jobs.length, 3);
+  assert.equal(final.requests.length, 2);
+});
+
+test('relay pause holds the next hop; stop cancels it and resume never recreates cancelled hops', async (t) => {
+  const f = setup();
+  t.after(f.close);
+  f.engine.send(f.room.id, command([f.a.id], { relayOrder: [f.a.id, f.c.id, f.b.id] }));
+  f.engine.pump();
+  f.engine.control(f.room.id, 'pause');
+  f.provider.releases[0]!();
+  await until(() => f.store.get(f.room.id).relays[0]!.completedSteps === 1);
+  f.engine.pump();
+  assert.equal(f.provider.inputs.length, 1);
+  assert.equal(f.store.get(f.room.id).jobs[1]!.status, 'queued');
+  f.engine.control(f.room.id, 'stop');
+  f.engine.control(f.room.id, 'resume');
+  f.engine.pump();
+  assert.equal(f.provider.inputs.length, 1);
+  assert.equal(f.store.get(f.room.id).relays[0]!.status, 'cancelled');
+});
+
+test('a relay reserves every future hop and rejects forged, mixed, or oversized orders atomically', (t) => {
+  const f = setup(4);
+  t.after(f.close);
+  for (const extra of [
+    { relayOrder: ['unknown'] },
+    { relayOrder: [f.b.id] },
+    { relayOrder: [f.a.id], synthesisAgentId: f.c.id },
+    { relayOrder: [f.a.id], type: 'update' as const },
+    { relayOrder: Array(13).fill(f.a.id) },
+  ])
+    assert.throws(() => f.engine.send(f.room.id, command([f.a.id], extra)));
+  assert.equal(f.store.get(f.room.id).messages.length, 0);
+  f.engine.send(f.room.id, command([f.a.id], { relayOrder: [f.a.id, f.c.id, f.b.id, f.a.id] }));
+  assert.throws(() => f.engine.send(f.room.id, command([f.b.id])), /turn budget/);
+  f.engine.control(f.room.id, 'stop');
+  f.engine.control(f.room.id, 'resume');
+  f.engine.send(f.room.id, command([f.b.id]));
+});
+
+test('relay timeout cancels its future hops and preserves partial output', async (t) => {
+  let milliseconds = 0;
+  const f = setup(10, { now: () => new Date(milliseconds) });
+  t.after(f.close);
+  f.engine.send(f.room.id, command([f.a.id], { relayOrder: [f.a.id, f.b.id], deadlineSeconds: 5 }));
+  f.engine.pump();
+  await until(() => f.store.get(f.room.id).messages[1]!.body.length > 0);
+  milliseconds = 6000;
+  f.engine.pump();
+  const final = f.store.get(f.room.id);
+  assert.equal(final.status, 'paused');
+  assert.equal(final.relays[0]!.status, 'cancelled');
+  assert.equal(final.relays[0]!.completedSteps, 0);
+  assert.ok(final.messages[1]!.body);
+  assert.equal(final.messages[1]!.status, 'cancelled');
+});
+
+test('relay restart keeps the queued next hop and does not replay its completed predecessor', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'aib-relay-recovery-'));
+  const path = join(directory, 'rooms.sqlite');
+  const store = new RoomStore(path);
+  const provider = new ControlledProvider();
+  const engine = new ConversationEngine(store, provider, { autoSchedule: false });
+  const room = engine.createRoom({ title: 'Relay recovery', objective: '', maxTurns: 20 });
+  const a = room.agents[0]!.id;
+  const b = room.agents[1]!.id;
+  engine.send(room.id, command([a], { relayOrder: [a, b] }));
+  engine.pump();
+  provider.releases[0]!();
+  await until(() => store.get(room.id).jobs.length === 2);
+  engine.close();
+  store.close();
+  const restoredStore = new RoomStore(path);
+  const restoredProvider = new ControlledProvider();
+  const restored = new ConversationEngine(restoredStore, restoredProvider, { autoSchedule: false });
+  try {
+    restored.pump();
+    assert.equal(restoredProvider.inputs.length, 0);
+    assert.equal(restoredStore.get(room.id).relays[0]!.completedSteps, 1);
+    restored.control(room.id, 'resume');
+    restored.pump();
+    assert.equal(restoredProvider.inputs[0]!.agent.id, b);
+    restoredProvider.releases[0]!();
+    await until(() => restoredStore.get(room.id).relays[0]!.status === 'completed');
+    assert.equal(restoredStore.get(room.id).turnsUsed, 2);
+  } finally {
+    restored.close();
+    restoredStore.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('participant settings are versioned, validated, persisted, and frozen for existing invocations', async (t) => {
+  const f = setup();
+  t.after(f.close);
+  const settings = {
+    agentId: f.b.id,
+    name: 'Grok reviewer',
+    role: 'Review carefully',
+    provider: 'xai' as const,
+    model: 'grok-model',
+    baseUrl: '',
+    maxOutputTokens: 512,
+    timeoutSeconds: 30,
+  };
+  f.engine.configureAgent(f.room.id, settings);
+  assert.equal(f.store.get(f.room.id).agents[1]!.configRevision, 1);
+  const first = f.engine.send(f.room.id, command([f.b.id]));
+  assert.throws(
+    () => f.engine.configureAgent(f.room.id, { ...settings, model: 'new-model' }),
+    /pending work/,
+  );
+  f.engine.pump();
+  assert.equal(f.provider.inputs[0]!.agent.model, 'grok-model');
+  f.provider.releases[0]!();
+  await until(() => f.store.get(f.room.id).requests[0]!.status === 'ready');
+  f.engine.configureAgent(f.room.id, { ...settings, model: 'new-model' });
+  const final = f.store.get(f.room.id);
+  assert.equal(final.agents[1]!.model, 'new-model');
+  assert.equal(final.agents[1]!.configRevision, 2);
+  assert.equal(
+    final.snapshots.find(
+      (s) => s.id === final.requests.find((r) => r.id === first.requestId)!.snapshotId,
+    )!.agents[1]!.model,
+    'grok-model',
+  );
+  assert.throws(
+    () => f.engine.configureAgent(f.room.id, { ...settings, agentId: 'unknown' }),
+    /Unknown participant/,
+  );
+});
+
+test('an interrupted relay hop requires explicit retry and keeps its original context after restart', async () => {
+  const f = setup();
+  let restored: ConversationEngine | undefined;
+  try {
+    f.engine.send(f.room.id, command([f.a.id], { relayOrder: [f.a.id, f.c.id, f.b.id] }));
+    f.engine.pump();
+    f.provider.releases[0]!();
+    await until(() => f.store.get(f.room.id).relays[0]!.completedSteps === 1);
+    f.engine.pump();
+    await until(() => f.store.get(f.room.id).messages[2]!.body.length > 0);
+    f.engine.close();
+    const prior = f.store.get(f.room.id);
+    assert.equal(prior.jobs[1]!.status, 'interrupted');
+    assert.equal(prior.relays[0]!.status, 'blocked');
+    const provider = new ControlledProvider();
+    restored = new ConversationEngine(f.store, provider, { autoSchedule: false });
+    restored.control(f.room.id, 'resume');
+    restored.pump();
+    assert.equal(provider.inputs.length, 0);
+    restored.retry(f.room.id, prior.jobs[1]!.id);
+    restored.pump();
+    assert.equal(provider.inputs[0]!.agent.id, f.c.id);
+    assert.equal(provider.inputs[0]!.snapshot.messages.length, 2);
+    provider.releases[0]!();
+    await until(() => f.store.get(f.room.id).relays[0]!.completedSteps === 2);
+    restored.pump();
+    provider.releases[1]!();
+    await until(() => f.store.get(f.room.id).relays[0]!.status === 'completed');
+    assert.deepEqual(
+      provider.inputs.map((i) => i.agent.id),
+      [f.c.id, f.b.id],
+    );
+    assert.equal(f.store.get(f.room.id).turnsUsed, 4);
+  } finally {
+    restored?.close();
+    f.close();
+  }
+});
+
+test('connection checks serialize with participant work and do not consume a room turn', async (t) => {
+  const f = setup();
+  t.after(f.close);
+  const check = f.engine.testConnection(f.room.id, f.a.id);
+  await assert.rejects(f.engine.testConnection(f.room.id, f.a.id), /busy/);
+  f.engine.send(f.room.id, command([f.a.id, f.b.id]));
+  f.engine.pump();
+  assert.deepEqual(
+    f.provider.inputs.map((i) => i.agent.id),
+    [f.a.id, f.b.id],
+  );
+  f.provider.releases[0]!();
+  assert.ok((await check).reply);
+  assert.equal(f.store.get(f.room.id).turnsUsed, 1);
+  f.engine.pump();
+  assert.equal(f.provider.inputs[2]!.agent.id, f.a.id);
+  f.provider.releases[1]!();
+  f.provider.releases[2]!();
+  await until(() => f.store.get(f.room.id).requests[0]!.status === 'ready');
+  assert.equal(f.store.get(f.room.id).turnsUsed, 2);
+});

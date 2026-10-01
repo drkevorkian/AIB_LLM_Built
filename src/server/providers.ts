@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Agent, ContextSnapshot } from '../shared/contracts.js';
+import type { Agent, ContextSnapshot, ProviderStatus, TokenUsage } from '../shared/contracts.js';
 
 export interface ProviderInput {
   agent: Agent;
@@ -9,16 +9,25 @@ export interface ProviderInput {
   includedAnswers: { author: string; body: string }[];
   expectedRespondents: string[];
   missingRespondents: string[];
+  relay?: { step: number; total: number };
 }
 export type ProviderEvent =
-  { type: 'delta'; text: string } | { type: 'complete' } | { type: 'refused'; reason: string };
+  | { type: 'delta'; text: string }
+  | { type: 'complete' }
+  | { type: 'refused'; reason: string }
+  | { type: 'metadata'; requestId?: string; usage?: TokenUsage };
 export interface ProviderAdapter {
   readonly id: string;
   readonly capabilities: { streaming: boolean; cancellation: boolean; remote: boolean };
   generate(input: ProviderInput, signal: AbortSignal): AsyncIterable<ProviderEvent>;
+  connections?(): ProviderStatus[];
+  models?(provider: string, baseUrl: string, signal: AbortSignal): Promise<string[]>;
+  validateAgent?(agent: Agent): void;
 }
 
 export class ProviderRefusal extends Error {}
+/** Only safe, application-authored explanations reach transcripts or diagnostics. */
+export class ProviderError extends Error {}
 
 /** Deterministic plumbing demonstration. This is deliberately not represented as an LLM. */
 export class SimulatedProvider implements ProviderAdapter {

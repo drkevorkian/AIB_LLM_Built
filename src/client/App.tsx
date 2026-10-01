@@ -6,9 +6,11 @@ import type {
   Request,
   Room,
   RoomSummary,
+  Relay,
   SendInput,
 } from '../shared/contracts.js';
 import { api, watch } from './api.js';
+import { AgentSettings } from './AgentSettings.js';
 
 function Glyph({
   kind,
@@ -79,6 +81,7 @@ export function App() {
   const [newRoom, setNewRoom] = useState(false);
   const [reply, setReply] = useState<Message | null>(null);
   const [inspect, setInspect] = useState<Message | null>(null);
+  const [settings, setSettings] = useState<Agent | null>(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('aib-theme') ?? 'dark');
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -122,6 +125,7 @@ export function App() {
     setThreadId(null);
     setReply(null);
     setInspect(null);
+    setSettings(null);
     follow.current = true;
   }, [roomId]);
   useEffect(() => {
@@ -180,6 +184,7 @@ export function App() {
   const shown = room?.messages.filter((m) => !threadId || m.threadId === threadId) ?? [];
   const activeCount = room?.jobs.filter((j) => j.status === 'running').length ?? 0;
   const queueCount = room?.jobs.filter((j) => j.status === 'queued').length ?? 0;
+  const liveCount = room?.agents.filter((a) => a.provider !== 'simulated').length ?? 0;
   const snapshots =
     inspect && room ? room.snapshots.find((s) => s.id === inspect.snapshotId) : null;
 
@@ -196,7 +201,10 @@ export function App() {
         </div>
         <div className="header-center">
           <span className="demo-dot" />
-          LOCAL SIMULATION<span className="version">v0.1.0</span>
+          {liveCount
+            ? `${liveCount} LIVE AGENT${liveCount === 1 ? '' : 'S'} CONFIGURED`
+            : 'SIMULATION'}
+          <span className="version">v0.2.0</span>
         </div>
         <div className="header-actions">
           <span className={`connection ${connected ? 'online' : ''}`}>
@@ -275,7 +283,11 @@ export function App() {
           )}
           <div className="sidebar-footer">
             <span className="eyebrow">YOUR MACHINE · YOUR WORKSPACE</span>
-            <p>Messages stay local in this build. Simulated agents make no external calls.</p>
+            <p>
+              {liveCount
+                ? 'Live providers receive the objective, participant roles, and frozen conversation context for their turns.'
+                : 'Participants use simulation until you configure a live provider.'}
+            </p>
             <span className="muted">Work continues while the service runs.</span>
           </div>
         </aside>
@@ -397,8 +409,9 @@ export function App() {
                   </div>
                 </div>
                 <p className="simulation-note">
-                  This first build uses deterministic simulated agents to verify the conversation
-                  flow.
+                  {liveCount
+                    ? 'Live connections are selected. Provider usage may incur charges.'
+                    : 'Configure a participant to connect a real model. Simulation remains available for testing.'}
                 </p>
               </div>
             )}
@@ -420,6 +433,11 @@ export function App() {
                       room={room}
                     />
                   )}
+                  {room.relays
+                    .filter((r) => r.messageId === m.id)
+                    .map((r) => (
+                      <RelayCard key={r.id} relay={r} room={room} />
+                    ))}
                 </div>
               ))}
           </div>
@@ -462,6 +480,7 @@ export function App() {
               key={agent.id}
               agent={agent}
               room={room}
+              onConfigure={() => setSettings(agent)}
               onRetry={async (id) => {
                 try {
                   await api.retry(room.id, id);
@@ -482,7 +501,8 @@ export function App() {
               </div>
               <progress value={room.turnsUsed} max={room.maxTurns} aria-label="Turns used" />
               <p>
-                Each generation counts as a turn. Updates do not. No provider charges in simulation.
+                Each generation counts as a turn. Updates do not. Live provider usage may incur
+                charges.
               </p>
             </div>
           )}
@@ -533,11 +553,25 @@ export function App() {
         >
           <p className="muted">Message ID: {inspect.id}</p>
           <p>Visible to the room · reply to {inspect.replyTo ?? 'none'}</p>
+          {room.jobs
+            .filter((j) => j.messageId === inspect.id)
+            .map((j) => (
+              <p key={j.id} className="muted">
+                Provider request: {j.providerRequestId ?? 'not reported'} · Input tokens:{' '}
+                {j.usage?.inputTokens ?? 'not reported'} · Output tokens:{' '}
+                {j.usage?.outputTokens ?? 'not reported'}
+              </p>
+            ))}
           {snapshots ? (
             <Snapshot snapshot={snapshots} room={room} />
           ) : (
             <p>This message has no invocation context snapshot.</p>
           )}
+        </Modal>
+      )}
+      {settings && room && (
+        <Modal title={`Configure ${settings.name}`} onClose={() => setSettings(null)}>
+          <AgentSettings room={room} agent={settings} onSaved={() => setTick((v) => v + 1)} />
         </Modal>
       )}
     </div>
@@ -556,6 +590,9 @@ function MessageCard({
   onInspect: () => void;
 }) {
   const agent = room.agents.find((a) => a.id === m.authorId);
+  const binding =
+    room.snapshots.find((s) => s.id === m.snapshotId)?.agents.find((a) => a.id === m.authorId) ??
+    agent;
   const prior = room.messages.find((p) => p.id === m.replyTo);
   return (
     <article
@@ -570,7 +607,9 @@ function MessageCard({
             {m.type === 'synthesis'
               ? 'SYNTHESIS'
               : agent
-                ? 'SIMULATED AGENT'
+                ? binding?.provider === 'simulated'
+                  ? 'SIMULATED AGENT'
+                  : `${binding?.provider.toUpperCase()} / ${binding?.model}`
                 : m.type.toUpperCase()}
           </span>
           <time dateTime={m.createdAt}>{time(m.createdAt)}</time>
@@ -601,6 +640,26 @@ function MessageCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function RelayCard({ relay, room }: { relay: Relay; room: Room }) {
+  return (
+    <div className="response-set relay-status" aria-label="Relay progress">
+      <div>
+        <span className="collection-label">AUTOMATIC RELAY</span>
+        <strong>
+          {relay.completedSteps} / {relay.order.length} complete
+        </strong>
+        <Badge value={relay.status} />
+      </div>
+      <p>{relay.order.map((id) => nameOf(room, id)).join(' → ')}</p>
+      <small className="muted">
+        Each completed answer is delivered to the next selected agent. The final answer returns to
+        you.
+      </small>
+      {relay.error && <p className="form-error">{relay.error}</p>}
+    </div>
   );
 }
 
@@ -659,10 +718,12 @@ function AgentCard({
   agent,
   room,
   onRetry,
+  onConfigure,
 }: {
   agent: Agent;
   room: Room;
   onRetry: (id: string) => Promise<void>;
+  onConfigure: () => void;
 }) {
   const jobs = room.jobs.filter((j) => j.agentId === agent.id);
   const active = jobs.find((j) => j.status === 'running');
@@ -681,13 +742,18 @@ function AgentCard({
         <span className={`avatar ${agent.color}`}>{agent.name.at(-1)}</span>
         <div>
           <strong>{agent.name}</strong>
-          <small>simulation-v1</small>
+          <small>
+            {agent.provider} / {agent.model}
+          </small>
         </div>
         <span className={`agent-state ${active ? 'working' : ''}`}>
           {active ? 'generating' : queued ? `${queued} queued` : 'idle'}
         </span>
       </div>
       <p>{agent.role}</p>
+      <button className="configure-agent" onClick={onConfigure}>
+        Configure {agent.name}
+      </button>
       {latest?.error && (
         <div className="job-error">
           {latest.error}
@@ -724,11 +790,18 @@ function Composer({
 }) {
   const [body, setBody] = useState('');
   const [recipients, setRecipients] = useState(room.agents.slice(1).map((a) => a.id));
-  const [type, setType] = useState<'question' | 'update'>('question');
+  const [type, setType] = useState<'question' | 'update' | 'relay'>('question');
+  const [relayOrder, setRelayOrder] = useState([
+    room.agents[0]!.id,
+    room.agents[2]!.id,
+    room.agents[1]!.id,
+    room.agents[0]!.id,
+  ]);
   const [policy, setPolicy] = useState<SendInput['policy']>('all');
   const [quorum, setQuorum] = useState(1);
   const [synthesis, setSynthesis] = useState(true);
   const [sending, setSending] = useState(false);
+  const [deadlineSeconds, setDeadlineSeconds] = useState(120);
   const clientId = useRef<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -757,14 +830,15 @@ function Composer({
       const result = await api.send(room.id, {
         clientId: clientId.current,
         body,
-        type,
-        recipientIds: recipients,
-        policy,
+        type: type === 'relay' ? 'question' : type,
+        recipientIds: type === 'relay' ? relayOrder.slice(0, 1) : recipients,
+        policy: type === 'relay' ? 'all' : policy,
         quorum,
         synthesisAgentId: type === 'question' && synthesis && synthesizer ? synthesizer.id : null,
         threadId,
         replyTo: reply?.id ?? null,
-        deadlineSeconds: 120,
+        deadlineSeconds,
+        relayOrder: type === 'relay' ? relayOrder : [],
       });
       setBody('');
       clientId.current = null;
@@ -790,33 +864,84 @@ function Composer({
           </button>
         </div>
       )}
-      <div className="recipient-row">
-        <span className="eyebrow">TO</span>
-        {room.agents.map((a) => (
-          <label
-            className={`recipient ${a.color} ${recipients.includes(a.id) ? 'checked' : ''}`}
-            key={a.id}
+      {type !== 'relay' && (
+        <div className="recipient-row">
+          <span className="eyebrow">TO</span>
+          {room.agents.map((a) => (
+            <label
+              className={`recipient ${a.color} ${recipients.includes(a.id) ? 'checked' : ''}`}
+              key={a.id}
+            >
+              <input
+                type="checkbox"
+                checked={recipients.includes(a.id)}
+                onChange={() => {
+                  clientId.current = null;
+                  setRecipients((prev) =>
+                    prev.includes(a.id) ? prev.filter((id) => id !== a.id) : [...prev, a.id],
+                  );
+                }}
+              />
+              <span>{a.name}</span>
+            </label>
+          ))}
+          <span className="visibility-label">Visible to the room</span>
+        </div>
+      )}
+      {type === 'relay' && (
+        <div className="relay-editor">
+          <span className="eyebrow">RELAY ORDER</span>
+          <div className="relay-steps">
+            {relayOrder.map((id, index) => (
+              <label key={index}>
+                <span>{index + 1}</span>
+                <select
+                  aria-label={`Relay step ${index + 1}`}
+                  value={id}
+                  onChange={(e) => {
+                    setRelayOrder((order) =>
+                      order.map((value, i) => (i === index ? e.target.value : value)),
+                    );
+                    clientId.current = null;
+                  }}
+                >
+                  {room.agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  aria-label={`Remove relay step ${index + 1}`}
+                  disabled={relayOrder.length === 1}
+                  onClick={() => {
+                    setRelayOrder((order) => order.filter((_, i) => i !== index));
+                    clientId.current = null;
+                  }}
+                >
+                  ×
+                </button>
+              </label>
+            ))}
+          </div>
+          <button
+            type="button"
+            disabled={relayOrder.length >= 12}
+            onClick={() => {
+              setRelayOrder((order) => [...order, room.agents[0]!.id]);
+              clientId.current = null;
+            }}
           >
-            <input
-              type="checkbox"
-              checked={recipients.includes(a.id)}
-              onChange={() => {
-                clientId.current = null;
-                setRecipients((prev) =>
-                  prev.includes(a.id) ? prev.filter((id) => id !== a.id) : [...prev, a.id],
-                );
-              }}
-            />
-            <span>{a.name}</span>
-          </label>
-        ))}
-        <span className="visibility-label">Visible to the room</span>
-      </div>
+            Add relay step
+          </button>
+        </div>
+      )}
       <textarea
         ref={textarea}
         aria-label="Message"
         placeholder={
-          type === 'question'
+          type !== 'update'
             ? 'What should the agents explore?'
             : 'Share an update. No replies will be scheduled.'
         }
@@ -846,8 +971,27 @@ function Composer({
             }}
           >
             <option value="question">Question</option>
+            <option value="relay">Automatic relay</option>
             <option value="update">Update · no reply</option>
           </select>
+          {type !== 'update' && (
+            <label className="deadline-option">
+              Deadline (s)
+              <input
+                aria-label="Response deadline in seconds"
+                className="quorum"
+                type="number"
+                required
+                min={5}
+                max={600}
+                value={deadlineSeconds}
+                onChange={(e) => {
+                  setDeadlineSeconds(Number(e.target.value));
+                  clientId.current = null;
+                }}
+              />
+            </label>
+          )}
           {type === 'question' && (
             <>
               <select
@@ -910,7 +1054,9 @@ function Composer({
           {threadId ? 'This thread' : 'Starts a new thread'} ·{' '}
           {type === 'update'
             ? 'No agents invoked'
-            : 'Independent answers from the same starting context'}
+            : type === 'relay'
+              ? `${relayOrder.length} turns reserved; each hop waits for the previous answer`
+              : 'Independent answers from the same starting context'}
         </span>
         <span>Ctrl / ⌘ + Enter</span>
       </div>
@@ -1002,7 +1148,8 @@ function NewRoom({ onClose, onCreated }: { onClose: () => void; onCreated: (room
           />
         </label>
         <p className="muted">
-          Three independent simulated agents will join this room. No external calls.
+          Three independent participants start in simulation. Configure each to connect a real
+          model.
         </p>
         {error && (
           <p className="form-error" role="alert">
@@ -1032,7 +1179,8 @@ function Snapshot({ snapshot, room }: { snapshot: ContextSnapshot; room: Room })
         <summary>Participant roles at invocation</summary>
         {snapshot.agents.map((a) => (
           <p key={a.id}>
-            <strong>{a.name}</strong>: {a.role}
+            <strong>{a.name}</strong>: {a.role} · {a.provider} / {a.model} · configuration{' '}
+            {a.configRevision ?? 0}
           </p>
         ))}
       </details>

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import type {
   Agent,
+  AgentSettingsInput,
   ContextSnapshot,
   CreateRoomInput,
   Job,
@@ -10,8 +11,9 @@ import type {
   Room,
   SendInput,
   SendResult,
+  ProviderStatus,
 } from '../shared/contracts.js';
-import { createRoomSchema, sendSchema } from '../shared/contracts.js';
+import { agentSettingsSchema, createRoomSchema, sendSchema } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
 import { ProviderRefusal } from './providers.js';
@@ -29,6 +31,7 @@ export class ConversationEngine extends EventEmitter {
   private now: () => Date;
   private id: () => string;
   private active = new Map<string, { roomId: string; agentId: string; abort: AbortController }>();
+  private connectionChecks = new Map<string, AbortController>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
   private concurrency: number;
@@ -83,6 +86,7 @@ export class ConversationEngine extends EventEmitter {
       jobs: [],
       snapshots: [],
       events: [],
+      relays: [],
     };
     this.audit(room, 'room.created', 'Room created with three simulated participants.');
     this.store.create(room);
@@ -90,9 +94,106 @@ export class ConversationEngine extends EventEmitter {
     return room;
   }
 
+  connections(): ProviderStatus[] {
+    return this.provider.connections?.() ?? [];
+  }
+
+  async models(provider: string, baseUrl: string): Promise<string[]> {
+    if (!this.provider.models) throw new AppError(400, 'Model discovery is unavailable.');
+    try {
+      return await this.provider.models(provider, baseUrl, AbortSignal.timeout(15000));
+    } catch (error) {
+      throw new AppError(400, error instanceof Error ? error.message : 'Model discovery failed.');
+    }
+  }
+
+  configureAgent(roomId: string, raw: AgentSettingsInput): void {
+    const input = agentSettingsSchema.parse(raw);
+    this.store.mutate(roomId, (room) => {
+      const agent = room.agents.find((a) => a.id === input.agentId);
+      if (!agent) throw new AppError(400, 'Unknown participant.');
+      if (
+        room.jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
+        this.connectionChecks.has(input.agentId) ||
+        room.relays.some((r) => ['running', 'blocked'].includes(r.status))
+      )
+        throw new AppError(
+          409,
+          'Finish or stop pending work before editing participants. Existing context snapshots retain their original settings.',
+        );
+      const next: Agent = { ...agent, ...input, configRevision: (agent.configRevision ?? 0) + 1 };
+      delete (next as Agent & { agentId?: string }).agentId;
+      try {
+        this.provider.validateAgent?.(next);
+      } catch (error) {
+        throw new AppError(
+          400,
+          error instanceof Error ? error.message : 'Invalid connection settings.',
+        );
+      }
+      Object.assign(agent, next);
+      this.audit(
+        room,
+        'agent.configured',
+        `${agent.name}: ${agent.provider} / ${agent.model}, configuration ${agent.configRevision}.`,
+      );
+    });
+    this.changed(roomId);
+  }
+
+  async testConnection(roomId: string, agentId: string): Promise<{ reply: string }> {
+    if (this.closed) throw new AppError(409, 'Service is shutting down.');
+    const room = this.store.get(roomId);
+    const agent = room.agents.find((a) => a.id === agentId);
+    if (!agent) throw new AppError(400, 'Unknown participant.');
+    if (
+      this.connectionChecks.has(agentId) ||
+      [...this.active.values()].some((t) => t.agentId === agentId) ||
+      this.active.size + this.connectionChecks.size >= this.concurrency
+    )
+      throw new AppError(409, 'This participant is busy. Wait for its current request to finish.');
+    const abort = new AbortController();
+    this.connectionChecks.set(agentId, abort);
+    const snapshot = this.snapshot({ ...room, objective: '' }, []);
+    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(30000)]);
+    let text = '';
+    try {
+      for await (const event of this.provider.generate(
+        {
+          agent,
+          snapshot,
+          prompt:
+            'Reply with a short greeting identifying your participant name. This is a connection test.',
+          kind: 'answer',
+          includedAnswers: [],
+          expectedRespondents: [],
+          missingRespondents: [],
+        },
+        signal,
+      )) {
+        signal.throwIfAborted();
+        if (event.type === 'refused')
+          throw new ProviderRefusal('Provider refused the connection test.');
+        if (event.type === 'delta') {
+          text += event.text;
+          if (text.length > 20000) throw new Error('Connection test output exceeds the limit.');
+        }
+        if (event.type === 'complete' && text.trim()) return { reply: text.slice(0, 300) };
+      }
+      throw new Error('Connection test did not produce a completed answer.');
+    } catch (error) {
+      throw new AppError(400, error instanceof Error ? error.message : 'Connection test failed.');
+    } finally {
+      this.connectionChecks.delete(agentId);
+    }
+  }
+
   send(roomId: string, raw: SendInput): SendResult {
     const input = sendSchema.parse(raw);
-    const commandHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+    const { relayOrder, ...legacyCommand } = input;
+    const commandHash = createHash('sha256')
+      .update(JSON.stringify(relayOrder.length ? input : legacyCommand))
+      .digest('hex');
     const previous = this.store.get(roomId).messages.find((m) => m.clientId === input.clientId);
     if (previous) {
       if (previous.commandHash !== commandHash)
@@ -111,6 +212,21 @@ export class ConversationEngine extends EventEmitter {
         throw new AppError(400, 'Unknown synthesis agent.');
       if (input.type === 'question' && !input.recipientIds.length)
         throw new AppError(400, 'A question needs at least one recipient.');
+      if (input.relayOrder.length) {
+        if (
+          input.type !== 'question' ||
+          input.synthesisAgentId ||
+          input.policy !== 'all' ||
+          input.recipientIds.length !== 1 ||
+          input.recipientIds[0] !== input.relayOrder[0]
+        )
+          throw new AppError(
+            400,
+            'A relay is a question addressed to its first participant, without parallel collection or synthesis.',
+          );
+        if (input.relayOrder.some((id) => !agentIds.has(id)))
+          throw new AppError(400, 'Unknown relay participant.');
+      }
       if (input.type === 'update' && input.synthesisAgentId)
         throw new AppError(400, 'Updates cannot schedule synthesis.');
       if (input.synthesisAgentId && input.recipientIds.includes(input.synthesisAgentId))
@@ -134,7 +250,7 @@ export class ConversationEngine extends EventEmitter {
       }
       const needed =
         input.type === 'question'
-          ? input.recipientIds.length + (input.synthesisAgentId ? 1 : 0)
+          ? input.relayOrder.length || input.recipientIds.length + (input.synthesisAgentId ? 1 : 0)
           : 0;
       this.reserve(room, needed);
       const requestId = input.type === 'question' ? this.id() : null;
@@ -179,6 +295,27 @@ export class ConversationEngine extends EventEmitter {
           closedAt: null,
         };
         room.requests.push(request);
+        if (input.relayOrder.length) {
+          const relayId = this.id();
+          request.relayId = relayId;
+          request.relayStep = 0;
+          room.relays.push({
+            id: relayId,
+            messageId: message.id,
+            threadId,
+            order: input.relayOrder,
+            requestIds: [request.id],
+            completedSteps: 0,
+            status: 'running',
+            deadlineSeconds: input.deadlineSeconds,
+            error: null,
+          });
+          this.audit(
+            room,
+            'relay.started',
+            `Reserved ${input.relayOrder.length} sequential turns; each hop requires a completed answer.`,
+          );
+        }
         for (const agentId of input.recipientIds)
           room.jobs.push(this.job(request, agentId, 'answer', snapshot.id));
       }
@@ -197,6 +334,8 @@ export class ConversationEngine extends EventEmitter {
     this.store.mutate(roomId, (room) => {
       room.status = action === 'resume' ? 'running' : action === 'pause' ? 'paused' : 'stopped';
       if (action === 'stop') {
+        for (const relay of room.relays)
+          if (relay.status === 'running' || relay.status === 'blocked') relay.status = 'cancelled';
         for (const request of room.requests) {
           if (request.status === 'collecting') {
             request.status = 'cancelled';
@@ -268,6 +407,11 @@ export class ConversationEngine extends EventEmitter {
         request.status = 'collecting';
         request.closedAt = null;
         request.deadlineAt = new Date(this.now().getTime() + 120000).toISOString();
+        const relay = room.relays.find((r) => r.id === request.relayId);
+        if (relay) {
+          relay.status = 'running';
+          relay.error = null;
+        }
       }
       this.audit(room, 'job.retry', `Explicit retry of ${previous.id}; previous attempt retained.`);
     });
@@ -282,9 +426,10 @@ export class ConversationEngine extends EventEmitter {
       const room = this.store.get(initial.id);
       if (room.status !== 'running') continue;
       for (const job of room.jobs) {
-        if (this.active.size >= this.concurrency) return;
+        if (this.active.size + this.connectionChecks.size >= this.concurrency) return;
         if (
           job.status !== 'queued' ||
+          this.connectionChecks.has(job.agentId) ||
           [...this.active.values()].some((t) => t.agentId === job.agentId)
         )
           continue;
@@ -298,6 +443,7 @@ export class ConversationEngine extends EventEmitter {
     this.closed = true;
     if (this.timer) clearInterval(this.timer);
     for (const task of this.active.values()) task.abort.abort();
+    for (const abort of this.connectionChecks.values()) abort.abort();
     // Preserve unfinished work for explicit recovery; never auto-replay a running invocation.
     this.recover();
     this.removeAllListeners();
@@ -318,7 +464,10 @@ export class ConversationEngine extends EventEmitter {
       }
       const snapshot = room.snapshots.find((s) => s.id === job.snapshotId)!;
       const agent = snapshot.agents.find((a) => a.id === job.agentId)!;
-      const prompt = room.messages.find((m) => m.id === request.messageId)!.body;
+      const relay = room.relays.find((r) => r.id === request.relayId);
+      const prompt = room.messages.find(
+        (m) => m.id === (relay?.messageId ?? request.messageId),
+      )!.body;
       job.status = 'running';
       job.startedAt = this.timestamp();
       job.attemptId = this.id();
@@ -368,6 +517,7 @@ export class ConversationEngine extends EventEmitter {
         includedAnswers,
         expectedRespondents,
         missingRespondents,
+        ...(relay ? { relay: { step: request.relayStep!, total: relay.order.length } } : {}),
       };
       claimedAgentId = agent.id;
     });
@@ -388,7 +538,14 @@ export class ConversationEngine extends EventEmitter {
       for await (const event of this.provider.generate(input, signal)) {
         if (this.closed || signal.aborted) break;
         if (event.type === 'refused') throw new ProviderRefusal(event.reason);
-        if (event.type === 'delta') {
+        if (event.type === 'metadata') {
+          this.store.mutate(roomId, (room) => {
+            const job = room.jobs.find((j) => j.id === jobId)!;
+            if (job.status !== 'running') return;
+            if (event.requestId) job.providerRequestId = event.requestId;
+            if (event.usage) job.usage = event.usage;
+          });
+        } else if (event.type === 'delta') {
           this.store.mutate(roomId, (room) => {
             const job = room.jobs.find((j) => j.id === jobId)!;
             if (job.status !== 'running') return;
@@ -423,7 +580,7 @@ export class ConversationEngine extends EventEmitter {
           if (job.status !== 'running') return;
           job.status = error instanceof ProviderRefusal ? 'refused' : 'failed';
           job.endedAt = this.timestamp();
-          // Only the fixture's non-sensitive errors are surfaced in this milestone.
+          // Live adapters expose only application-authored, redacted error messages.
           job.error = error instanceof Error ? error.message.slice(0, 300) : 'Provider failed.';
           room.messages.find((m) => m.id === job.messageId)!.status =
             error instanceof ProviderRefusal ? 'refused' : 'failed';
@@ -452,6 +609,7 @@ export class ConversationEngine extends EventEmitter {
       request.status = 'ready';
       request.closedAt = this.timestamp();
       request.includedMessageIds = completed.map((j) => j.messageId!);
+      if (request.relayId) this.advanceRelay(room, request);
       if (request.synthesisAgentId) {
         const original = room.snapshots.find((s) => s.id === request.snapshotId)!;
         const included = request.includedMessageIds.map((id) =>
@@ -480,7 +638,67 @@ export class ConversationEngine extends EventEmitter {
     } else if (latest.every((j) => terminal.has(j.status))) {
       request.status = 'unresolved';
       request.closedAt = this.timestamp();
+      const relay = room.relays.find((r) => r.id === request.relayId);
+      if (relay) {
+        relay.status = 'blocked';
+        relay.error =
+          latest.find((j) => j.error)?.error ??
+          'Relay requires a completed answer before advancing.';
+      }
       this.audit(room, 'request.unresolved', 'Required eligible answers were not received.');
+    }
+  }
+
+  /** Completion and scheduling of the next exact-message hop commit atomically. */
+  private advanceRelay(room: Room, request: Request): void {
+    const relay = room.relays.find((r) => r.id === request.relayId)!;
+    if (relay.status !== 'running' || request.relayStep !== relay.completedSteps) return;
+    relay.completedSteps += 1;
+    if (relay.completedSteps === relay.order.length) {
+      relay.status = 'completed';
+      relay.error = null;
+      this.audit(
+        room,
+        'relay.completed',
+        `${relay.completedSteps} completed relay turns; final answer delivered to the human.`,
+      );
+      return;
+    }
+    const source = room.messages.find((m) => m.id === request.includedMessageIds[0])!;
+    const original = room.snapshots.find((s) => s.id === request.snapshotId)!;
+    const nextAgent = relay.order[relay.completedSteps]!;
+    try {
+      const snapshot = this.snapshot(room, [...original.messages, source]);
+      snapshot.agents = structuredClone(original.agents);
+      room.snapshots.push(snapshot);
+      const next: Request = {
+        ...request,
+        id: this.id(),
+        messageId: source.id,
+        snapshotId: snapshot.id,
+        recipientIds: [nextAgent],
+        status: 'collecting',
+        includedMessageIds: [],
+        createdAt: this.timestamp(),
+        deadlineAt: new Date(this.now().getTime() + relay.deadlineSeconds * 1000).toISOString(),
+        closedAt: null,
+        relayStep: relay.completedSteps,
+      };
+      source.recipientIds = [nextAgent, 'human'];
+      room.requests.push(next);
+      relay.requestIds.push(next.id);
+      room.jobs.push(this.job(next, nextAgent, 'answer', snapshot.id));
+      this.audit(
+        room,
+        'relay.advanced',
+        `Step ${relay.completedSteps + 1}/${relay.order.length} queued for ${nextAgent}; replies to message ${source.id}.`,
+      );
+    } catch (error) {
+      if (!(error instanceof AppError) || error.status !== 413) throw error;
+      relay.status = 'blocked';
+      relay.error =
+        'Relay context exceeds the 64,000-character limit. Completed answers are preserved. Stop the relay and start a shorter thread.';
+      this.audit(room, 'relay.blocked', relay.error);
     }
   }
 
@@ -499,6 +717,11 @@ export class ConversationEngine extends EventEmitter {
         if (!ids.has(request.id)) continue;
         request.status = 'timed_out';
         request.closedAt = this.timestamp();
+        const relay = room.relays.find((r) => r.id === request.relayId);
+        if (relay) {
+          relay.status = 'cancelled';
+          relay.error = 'Relay cancelled after its response deadline.';
+        }
         request.includedMessageIds = room.jobs
           .filter(
             (j) => j.requestId === request.id && j.kind === 'answer' && j.status === 'completed',
@@ -520,7 +743,11 @@ export class ConversationEngine extends EventEmitter {
 
   private recover(): void {
     for (const initial of this.store.all()) {
-      if (!initial.jobs.some((j) => j.status === 'running' || j.status === 'queued')) continue;
+      if (
+        !initial.jobs.some((j) => j.status === 'running' || j.status === 'queued') &&
+        !initial.relays.some((r) => r.status === 'running' || r.status === 'blocked')
+      )
+        continue;
       this.store.mutate(initial.id, (room) => {
         room.status = 'paused';
         for (const job of room.jobs) {
@@ -552,7 +779,10 @@ export class ConversationEngine extends EventEmitter {
   private reserve(room: Room, needed: number): void {
     const reserved =
       room.jobs.filter((j) => j.status === 'queued').length +
-      room.requests.filter((r) => r.status === 'collecting' && r.synthesisAgentId).length;
+      room.requests.filter((r) => r.status === 'collecting' && r.synthesisAgentId).length +
+      room.relays
+        .filter((r) => r.status === 'running' || r.status === 'blocked')
+        .reduce((n, r) => n + r.order.length - r.requestIds.length, 0);
     if (room.turnsUsed + reserved + needed > room.maxTurns)
       throw new AppError(
         409,

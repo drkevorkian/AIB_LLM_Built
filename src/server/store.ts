@@ -108,6 +108,8 @@ export class RoomStore {
     if (room.schemaVersion !== 1 || !Array.isArray(room.jobs) || !Array.isArray(room.snapshots)) {
       throw new Error('Invalid room data or unsupported room schema.');
     }
+    // v0.2 adds optional fields; v0.1 records remain usable without rewriting history.
+    room.relays ??= [];
     return room;
   }
 }

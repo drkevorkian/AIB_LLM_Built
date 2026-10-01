@@ -4,6 +4,8 @@ import type {
   RoomSummary,
   SendInput,
   SendResult,
+  AgentSettingsInput,
+  ProviderStatus,
 } from '../shared/contracts.js';
 
 let tokenPromise: Promise<string> | null = null;
@@ -41,6 +43,21 @@ async function request(path: string, options: RequestInit = {}, retry = true): P
 }
 
 export const api = {
+  providers: async () => (await request('/providers')).json() as Promise<ProviderStatus[]>,
+  models: async (provider: string, baseUrl: string) =>
+    (
+      await request(`/providers/${provider}/models?baseUrl=${encodeURIComponent(baseUrl)}`)
+    ).json() as Promise<string[]>,
+  configureAgent: async (id: string, input: AgentSettingsInput) => {
+    await request(`/rooms/${id}/agents`, { method: 'POST', body: JSON.stringify(input) });
+  },
+  testConnection: async (id: string, agentId: string) =>
+    (
+      await request(`/rooms/${id}/connection-test`, {
+        method: 'POST',
+        body: JSON.stringify({ agentId }),
+      })
+    ).json() as Promise<{ reply: string }>,
   list: async (signal?: AbortSignal) =>
     (await request('/rooms', { signal })).json() as Promise<RoomSummary[]>,
   room: async (id: string, signal?: AbortSignal) =>

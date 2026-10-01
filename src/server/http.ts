@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { ZodError } from 'zod';
-import { controlSchema, retrySchema, idSchema } from '../shared/contracts.js';
+import { controlSchema, retrySchema, idSchema, connectionTestSchema } from '../shared/contracts.js';
 import type { ConversationEngine } from './engine.js';
 import { AppError } from './errors.js';
 
@@ -99,13 +99,26 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
       if (req.method === 'GET' && url.pathname === '/api/session') {
         json(res, 200, {
           token,
-          version: '0.1.0',
-          transport: 'simulated',
+          version: '0.2.0',
+          transport: 'configured',
           continuesWithoutClient: true,
         });
         return;
       }
       authenticate(req);
+      if (url.pathname === '/api/providers' && req.method === 'GET') {
+        json(res, 200, engine.connections());
+        return;
+      }
+      const providerMatch = /^\/api\/providers\/([a-z-]+)\/models$/.exec(url.pathname);
+      if (providerMatch && req.method === 'GET') {
+        json(
+          res,
+          200,
+          await engine.models(providerMatch[1]!, url.searchParams.get('baseUrl') ?? ''),
+        );
+        return;
+      }
       if (req.method === 'GET' && url.pathname === '/api/events') {
         if (clients.size >= 10) throw new AppError(429, 'Too many active views.');
         res.writeHead(200, {
@@ -130,13 +143,30 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         );
         return;
       }
-      const match = /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|export))?$/.exec(
-        url.pathname,
-      );
+      const match =
+        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|export|agents|connection-test))?$/.exec(
+          url.pathname,
+        );
       if (!match) throw new AppError(404, 'Endpoint not found.');
       const roomId = idSchema.parse(match[1]);
       if (!match[2] && req.method === 'GET') {
         json(res, 200, engine.store.get(roomId));
+        return;
+      }
+      if (match[2] === 'agents' && req.method === 'POST') {
+        engine.configureAgent(
+          roomId,
+          (await body(req)) as Parameters<typeof engine.configureAgent>[1],
+        );
+        json(res, 200, { ok: true });
+        return;
+      }
+      if (match[2] === 'connection-test' && req.method === 'POST') {
+        json(
+          res,
+          200,
+          await engine.testConnection(roomId, connectionTestSchema.parse(await body(req)).agentId),
+        );
         return;
       }
       if (match[2] === 'messages' && req.method === 'POST') {
@@ -158,15 +188,19 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         res.setHeader('Content-Disposition', `attachment; filename="room-${room.id}.md"`);
         res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
         const parts = [
-          `# ${room.title}\n\n${room.objective}\n\nSimulation transcript. All messages are room-visible.\n`,
+          `# ${room.title}\n\n${room.objective}\n\n${room.agents.every((a) => a.provider === 'simulated') ? 'Simulation transcript' : 'Conversation transcript'}. All messages are room-visible. Provider labels below describe the frozen invocation settings.\n`,
         ];
         for (const message of room.messages) {
           const name =
             message.authorId === 'human'
               ? 'Human'
               : (room.agents.find((a) => a.id === message.authorId)?.name ?? message.authorId);
+          const binding = room.snapshots
+            .find((s) => s.id === message.snapshotId)
+            ?.agents.find((a) => a.id === message.authorId);
+          const attempt = room.jobs.find((j) => j.messageId === message.id);
           parts.push(
-            `\n## ${name} · ${message.type} · ${message.status}\n\nMessage: ${message.id} · Thread: ${message.threadId}\n\nReply to: ${message.replyTo ?? 'none'}\n\n${message.body}\n`,
+            `\n## ${name} · ${message.type} · ${message.status}\n\nMessage: ${message.id} · Thread: ${message.threadId}\n\nReply to: ${message.replyTo ?? 'none'}${binding ? `\n\nProvider: ${binding.provider} · Model: ${binding.model}` : ''}${attempt?.providerRequestId ? `\n\nProvider request: ${attempt.providerRequestId}` : ''}${attempt?.usage ? `\n\nToken usage: ${JSON.stringify(attempt.usage)}` : ''}\n\n${message.body}\n`,
           );
         }
         res.end(parts.join(''));

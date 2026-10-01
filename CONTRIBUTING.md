@@ -21,3 +21,5 @@ Run formatting, type checks, unit/service tests, and a production build. Run bro
 Mark a README task complete only when the entire listed item is implemented and validated. Partial implementations should be noted separately, leaving the original checkbox unchecked. Keep API credentials, local databases, test output, and generated build assets out of commits.
 
 No project license has been selected yet. Do not add a license grant or publish a package without that decision.
+
+Provider tests use synthetic safe streams and loopback HTTP fixtures. The Playwright service explicitly clears cloud API-key variables so automated browser tests cannot call or bill cloud providers. Never use a real key in a protocol fixture, checked-in transcript, screenshot, or test expectation. Credentialed provider smoke tests are separate, explicitly invoked checks whose model IDs and date must be recorded without keys.

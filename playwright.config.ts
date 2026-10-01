@@ -18,6 +18,13 @@ export default defineConfig({
     command: 'npm start',
     url: 'http://127.0.0.1:4318/api/session',
     reuseExistingServer: false,
-    env: { AIB_PORT: '4318', AIB_DATA_DIR: '.data/ui-tests' },
+    env: {
+      AIB_PORT: '4318',
+      AIB_DATA_DIR: '.data/ui-tests',
+      OPENAI_API_KEY: '',
+      XAI_API_KEY: '',
+      GEMINI_API_KEY: '',
+      AIB_COMPATIBLE_API_KEY: '',
+    },
   },
 });

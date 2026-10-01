@@ -1,8 +1,8 @@
 # AI Conversation Room
 
-A shared workspace where multiple LLM agents can discuss ideas, ask each other questions, review work, and collaborate under human direction.
+A local workspace where independent LLM agents answer directed or parallel requests, review prior answers, and exchange responses through automatic relay orders under human control.
 
-**Status:** v0.1.0 local simulation prototype. A runnable TypeScript application now implements the first conversation workflows. It uses deterministic simulated agents; live LLM connections are the next milestone. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
+**Status:** v0.2.0 adds live provider connections and automatic relay to the runnable TypeScript application. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and the full browser flow are tested with fixtures; paid-provider accounts have not been verified in this workspace because credentials are unavailable. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
 
 ## Overview
 
@@ -12,7 +12,7 @@ The central rule is simple:
 
 **Who can see a message, who should answer it, and when they should answer are separate decisions.**
 
-An agent can ask two peers for independent opinions, wait for both, compare their answers, and ask one peer a targeted follow-up. Other participants can observe without being required to respond. A fixed relay remains available for sessions that need a prescribed speaking order.
+You can ask two agents for independent opinions, wait for both, send their answers to a third agent for synthesis, and ask one participant a targeted follow-up. An automatic relay follows your selected order, including A → C → B → A. Other participants can observe without being required to respond. Agent-chosen routing and open-ended conference discussion remain target capabilities.
 
 ## Goals
 
@@ -25,20 +25,22 @@ An agent can ask two peers for independent opinions, wait for both, compare thei
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
 
-## Available in v0.1.0
+## Available in v0.2.0
 
-- A React interface with three columns, dark/light themes, and a responsive narrow layout.
-- Persistent rooms, shared objectives, threads, and three independent simulated agents.
-- Directed questions, parallel answers, all/any/quorum collection, and optional synthesis after collection.
-- Exact message replies, visible streaming, frozen context inspection, and Markdown export.
-- Per-agent queues, turn reservations, pause/resume/stop, bounded explicit retries, and restart recovery.
-- A loopback-only service with local session tokens, host/origin validation, and strict runtime command checks.
+- Configurable OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible text-generation connections, alongside clearly labeled simulation.
+- Participant name/role editing, exact model IDs, model discovery, output limits, and connection timeouts.
+- A connection test that makes an actual short generation request and reports its result.
+- Automatic, configurable relay orders with 1–12 hops, repeated participants, exact reply links, and a complete turn reservation before starting.
+- Directed questions, parallel answers, all/any/quorum collection, and optional synthesis after the required answers complete.
+- Persistent rooms/objectives/threads, streaming, frozen context inspection, reported token usage, provider request IDs, and Markdown export.
+- Per-agent queues, pause/resume/stop, explicit bounded retries, and restart recovery.
+- A responsive React interface with dark/light themes and a loopback-only service with validated local sessions.
 
-Simulated responses are labeled throughout the interface. This build makes no external provider calls and requests no API keys. It validates the conversation machinery; it does not claim to reason about your prompts.
+New rooms start in simulation so launch does not invoke or bill a provider. Configure participants explicitly to use real models. Missing credentials or failed live requests produce visible failures; they never fall back to simulation.
 
-See [release notes](docs/releases/0.1.0.md), [language decision](docs/architecture/0001-language-and-runtime.md), and [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md).
+See [v0.2.0 release notes](docs/releases/0.2.0.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
 
-![Local conversation interface](docs/images/workspace.png)
+![Automatic relay through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
 
 ## Planned capabilities
 
@@ -59,7 +61,7 @@ See [release notes](docs/releases/0.1.0.md), [language decision](docs/architectu
 
 ## Getting started
 
-Install **Node.js 24.15 or newer in the 24.x series**. This build was verified on Linux with Node 24.19.0. Windows and macOS are intended source-run targets; their CI results should be checked before treating them as verified. A native desktop installer is planned.
+Install **Node.js 24.15 or newer in the 24.x series**. This build was verified on Linux with Node 24.19.0. The source workflow is checked by CI on Linux, Windows, and macOS; Chromium UI coverage runs on Linux. A native desktop installer is planned.
 
 ```sh
 git clone https://github.com/drkevorkian/AIB_LLM_Built.git
@@ -68,7 +70,7 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:4317**. The first launch creates a room with AI A, AI B, and AI C. The default composer asks B and C independently, then queues A to synthesize their completed answers. Turn off synthesis or change the recipients for a directed conversation. Choose **Update · no reply** to share information without invoking anyone.
+Open **http://127.0.0.1:4317**. The first launch creates a room with AI A, AI B, and AI C. The default composer asks B and C independently, then queues A to synthesize their completed answers. Turn off synthesis or change the recipients for a directed conversation. Choose **Update · no reply** to share information without invoking anyone. Click **Configure AI A/B/C** on the participant cards to select actual models. New rooms have independent participant settings.
 
 The client updates during development. Restart the service after server-source changes. To run built assets:
 
@@ -78,6 +80,28 @@ npm start
 ```
 
 The service continues working if the browser view closes. Pause or stop from the UI to control work; press Ctrl+C in the service terminal to shut it down. On restart, unfinished rooms are paused. Queued jobs remain queued; interrupted jobs require an explicit retry and are never replayed automatically.
+
+### Connect real models
+
+1. Copy `.env.example` to `.env` in the repository directory. For a cloud provider, set `OPENAI_API_KEY`, `XAI_API_KEY`, or `GEMINI_API_KEY` locally. Restart the service after changing keys. Environment variables already set in the service take precedence over `.env`.
+2. Click **Configure AI A**, **Configure AI B**, or **Configure AI C**. Choose its provider, edit its role, and enter the exact text-generation model ID. **Load available models** reads the provider catalog; some catalog entries may not support text generation.
+3. Save the settings. **Test connection** sends a short greeting request through the selected connection. This test may incur provider charges and does not consume the room turn budget. It sends participant roles but no thread history or shared objective.
+4. Send a question, parallel consultation, or relay. All three participants may use different providers, or independent instances of the same provider/model.
+
+For **Ollama**, start Ollama on your machine and install a model in it. Select **Ollama (local)**, use `http://127.0.0.1:11434`, and load/select the installed model. No cloud API key is needed. The adapter accepts loopback servers only.
+
+For an **OpenAI-compatible server**, enter its base URL, including `/v1` when required by that server. HTTPS is required except on localhost. Set `AIB_COMPATIBLE_API_KEY` in the service if your server requires bearer authentication. Redirects are rejected to prevent forwarding credentials to a different endpoint. Compatibility depends on the server implementing streamed Chat Completions with a complete `stop` outcome.
+
+Provider keys remain in the service environment. They are absent from room records, snapshots, browser responses, and exports. A local `.env` file is ignored by Git but is still a plaintext file on your machine; restrict its filesystem access. OS keychain storage is planned. API access, billing, and model permissions are separate from website sessions/subscriptions.
+
+### Choose a conversation flow
+
+- **Directed:** select one participant and disable synthesis. Its answer is attributed to it; other agents remain observers. **Reply to AI B**, for example, selects B and preserves the exact reply target.
+- **Parallel:** select multiple participants. They receive the same initial context and answer independently. Choose all/any/quorum and optionally a separate synthesizer.
+- **Relay:** choose **Automatic relay** in the composer and edit the ordered steps. The default is A → C → B → A. Each completed answer goes to the next participant; the final answer returns to you. Failure or refusal blocks advancement. Pause holds new hops, and Stop cancels remaining hops. The deadline applies to each hop.
+- **Update:** share information with no new generation.
+
+Participant settings cannot be edited while queued/running work or a blocked relay remains. Stop pending work first. Previously recorded invocation snapshots retain their original provider, model, and role. Explicit retries retain the original snapshot too; send a new question to use a changed model or role.
 
 ### Configuration and data
 
@@ -107,7 +131,7 @@ $env:AIB_PORT = "4317"
 npm run dev
 ```
 
-`.env.example` documents settings; the application does not automatically load `.env` files. Local databases and secrets are ignored by Git. Do not run two application processes against the same data directory: the writer lease intentionally rejects the second process.
+`npm run dev` and `npm start` automatically load an optional local `.env` file using Node’s native loader. Local databases and secrets are ignored by Git. Do not run two application processes against the same data directory: the writer lease intentionally rejects the second process.
 
 ### Verification
 
@@ -118,17 +142,19 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-The first build has 22 engine/service tests and 3 Chromium UI tests. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
+The v0.2.0 suite includes engine/service and provider-protocol tests plus 5 Chromium UI tests. Protocol fixtures exercise the production adapters over streamed HTTP, including the full local-provider relay flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
 
-To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. These markers belong to the fixture and are not instructions for future real providers.
+To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. These markers belong to simulation and have no special behavior in live providers.
 
 ## Current implementation limits
 
 The rest of this README specifies the full target design. The checked TODO items at the end record completed work; unchecked items remain planned.
 
-The v0.1.0 build supports human-directed questions and updates, simulated answers, and optional synthesis. Agents do not yet issue their own questions or routing actions. Roles and models are fixed, all messages are room-visible, and all/any/quorum are the implemented collection policies. Timeout currently cancels unfinished work for the affected request and pauses the room; deadlines continue while a room is paused.
+The v0.2.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, and automatic fixed relay. Routing remains human-selected: models cannot yet create arbitrary structured send actions, pick their own recipients, run tools, or launch open-ended discussions. Each room currently has three participants; their names, roles, providers, and models are editable.
 
-Live API connections, autonomous agent-to-agent sends, configurable rosters, peer-review rounds, conference and fixed-relay modes, attachments, private threads, summaries, imports, backup tools, and installers remain on the roadmap. Remote acceptance/reconciliation must be implemented before automatic retries of live provider requests.
+All messages are room-visible. All/any/quorum are the implemented collection policies. Timeout cancels unfinished work for the affected request and pauses the room; deadlines continue while paused. Each provider also has a connection timeout. Reported usage is stored per attempt; monetary cost estimates and enforced token/cost budgets are not implemented.
+
+Signed-in browser-session transport, arbitrary roster sizes/activation, agent-chosen routing, assigned cross-review rounds, conference speaking queues, attachments, private threads, summaries, imports, backup tools, and installers remain planned. Remote acceptance/reconciliation is incomplete. The app never automatically retries live generations; an explicit retry may incur a second charge if the first request reached the provider. Stop aborts the local request, but a provider may continue processing or billing a request it already accepted.
 
 Initial limits are 12,000 characters per command, 20,000 per provider answer, and 64,000 per context snapshot. Oversized contexts are rejected explicitly; history is not silently truncated. The persistence layer is a transactional room-document store for a single service, with a separate SQLite writer lease. Multi-worker scheduling and large-history pagination are planned.
 
@@ -365,7 +391,7 @@ Implement domain contracts and a deterministic fake provider before live integra
 
 Contributions should explain the behavior changed, its reason, relevant failure cases, and validation. New routing or recovery behavior requires tests of its observable guarantees. No feature is complete solely because its happy path works once.
 
-TypeScript, React, Node 24, SQLite, and local browser operation are selected for v0.1.0. Source-run installation is available; desktop packaging, the project license, and live provider integrations remain open decisions. There is no declared project license grant.
+TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration adds live API adapters and bounded relay. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
 
 ## Delivery milestones
 
@@ -380,7 +406,7 @@ TypeScript, React, Node 24, SQLite, and local browser operation are selected for
 
 ## Complete implementation TODO checklist
 
-This is the complete implementation checklist for the scope described above. Checked items are implemented and verified in v0.1.0 or supported by a recorded scope decision. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
+This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0/v0.2.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
 
 ### 1. Product scope and decisions
 
@@ -389,7 +415,7 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Select the runtime, GUI framework, persistence engine, and packaging approach.
 - [ ] Select and document the project license and dependency license policy.
 - [x] Define MVP boundaries against milestones M0–M5.
-- [ ] Select initial API providers and document supported capabilities from their official documentation.
+- [x] Select initial API providers and document supported capabilities from their official documentation.
 - [x] Decide whether browser transport belongs in the first release or a later milestone.
 - [x] Define whether execution continues when the graphical client closes.
 - [x] Define single-user permissions and separately scope optional multi-user operation.
@@ -484,7 +510,7 @@ This is the complete implementation checklist for the scope described above. Che
 - [ ] Implement assigned cross-review after independent first answers.
 - [ ] Implement parallel task execution with explicit shared contracts.
 - [ ] Implement conference speaking queues and fair turn allocation.
-- [ ] Implement configurable fixed relay orders, including A → C → B → A.
+- [x] Implement configurable fixed relay orders, including A → C → B → A.
 - [ ] Keep fixed speaking order separate from message addressing.
 - [ ] Support a selectable starter and finite round limits.
 - [ ] Define mode transitions only at safe workflow boundaries.
@@ -511,18 +537,18 @@ This is the complete implementation checklist for the scope described above. Che
 ### 10. API adapters
 
 - [ ] Define a common adapter interface and capability registry.
-- [ ] Implement credential validation without exposing secrets.
-- [ ] Implement initial provider integrations against verified official contracts.
+- [x] Implement credential validation without exposing secrets.
+- [x] Implement initial provider integrations against verified official contracts.
 - [ ] Normalize accepted, streaming, completed, refused, failed, and interrupted outcomes.
-- [ ] Preserve provider request IDs and useful redacted metadata.
-- [ ] Handle rate limits, authentication expiry, service errors, and network disconnects.
-- [ ] Detect token-limit truncation and incomplete streams.
+- [x] Preserve provider request IDs and useful redacted metadata.
+- [x] Handle rate limits, authentication expiry, service errors, and network disconnects.
+- [x] Detect token-limit truncation and incomplete streams.
 - [ ] Implement cancellation where supported and report where it is unavailable.
 - [ ] Implement idempotency and request reconciliation where supported.
 - [ ] Validate structured outputs and expose unsupported features.
 - [ ] Handle attachments according to provider capabilities and data policies.
-- [ ] Collect usage and label unavailable or estimated values correctly.
-- [ ] Add adapter contract tests using recorded or synthetic safe fixtures.
+- [x] Collect usage and label unavailable or estimated values correctly.
+- [x] Add adapter contract tests using recorded or synthetic safe fixtures.
 
 ### 11. Recovery and human control
 
@@ -686,3 +712,23 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Confirm every advertised capability is implemented and validated or clearly marked unavailable.
 - [x] Record known limitations and unresolved defects in release notes.
 - [ ] Tag the reviewed release and archive its reproducible build inputs.
+
+### 21. Live-connection release follow-through
+
+- [x] Implement editable provider/model bindings for the existing three participants.
+- [x] Load optional local environment files while keeping keys in the service.
+- [x] Discover model IDs and provide a real generation-based connection check.
+- [x] Support a local Ollama server and explicit OpenAI-compatible endpoints.
+- [x] Reject credential-bearing URLs and automatic HTTP redirects.
+- [x] Record requested provider/model settings in immutable invocation snapshots.
+- [x] Stream live replies with visible failures and no simulation fallback.
+- [x] Persist automatic relay steps and validate their stop/recovery behavior.
+- [x] Verify configuration, connection check, relay, and targeted follow-up through the browser using labeled protocol fixtures.
+- [ ] Run credentialed live smoke tests for OpenAI, xAI, and Gemini and record exact verified model IDs/date.
+- [ ] Verify the Ollama adapter against a real installed model, beyond HTTP protocol fixtures.
+- [ ] Verify selected third-party OpenAI-compatible servers with real generation requests.
+- [ ] Add automatic provider-specific reconciliation for uncertain accepted requests before considering automatic retries.
+- [ ] Add OS-backed credential storage and a graphical credential management flow.
+- [ ] Preserve complete participant configuration revision history, including revisions never used in an invocation.
+- [ ] Extend model catalogs with provider-specific pagination and text-generation capability filtering.
+- [ ] Implement the separate signed-in browser-session transport and verify supported website/model combinations.

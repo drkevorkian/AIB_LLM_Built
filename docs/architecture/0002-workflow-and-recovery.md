@@ -1,6 +1,6 @@
 # ADR 0002: Explicit obligations and frozen response sets
 
-Status: Accepted for the local simulation milestone.
+Status: Accepted; updated for the v0.2.0 live-provider and relay milestone.
 
 ## Implemented flow
 
@@ -12,7 +12,7 @@ Status: Accepted for the local simulation milestone.
 6. Close an all/any/quorum response set with immutable included message IDs.
 7. If requested, queue a separate synthesis invocation whose snapshot includes only the original context and the closed answer set.
 
-All messages in v0.1.0 are room-visible. Only selected recipients receive work. Updates and prose mentions create no invocations. Agent-authored questions and autonomous structured routing are not implemented yet; current simulated agents only return answers or synthesis.
+All messages in v0.2.0 are room-visible. Only selected recipients receive work. Updates and prose mentions create no invocations. Agent-authored questions and autonomous structured routing are not implemented yet; current adapters return answers or synthesis; relay routing is selected by the human.
 
 ## Policies
 
@@ -28,14 +28,14 @@ Only the all/any/quorum subset of the full README policy design is implemented. 
 
 ## Pause, stop, and restart
 
-- Pause prevents new dispatches. Already-running jobs can finish; any dependent synthesis stays queued.
+- Pause prevents new dispatches. Already-running jobs can finish; any dependent synthesis or next relay hop stays queued.
 - Stop cancels queued and active jobs and closes collecting requests as cancelled. Results arriving afterward cannot release more work.
 - Resume permits valid queued jobs to dispatch. It does not recreate cancelled jobs.
 - Restart pauses unfinished rooms. Previously running jobs become interrupted; queued jobs remain queued. Interrupted jobs are never replayed automatically.
 - Explicit retry creates a new job linked to the previous attempt. The earlier error and partial message remain inspectable in persisted state. At most three attempts are allowed for a given recipient/kind in a request.
 - Resend protection uses a client-generated UUID plus a hash of the validated command. Repeating the same send returns the original message; changing its content under the same UUID produces a conflict.
 
-Remote request acceptance and reconciliation are not implemented because v0.1.0 has no remote provider. Live adapters must add uncertain-delivery handling before automatic remote retries are permitted.
+Live adapters preserve provider-reported request IDs and usage. Provider-specific reconciliation is not implemented. Generations are never automatically retried: an explicit retry may duplicate provider work or charges if the earlier request was accepted remotely. Aborting a local stream does not guarantee that remote processing or billing stops. Interrupted attempts require explicit review/retry.
 
 ## Context limits
 
@@ -46,3 +46,13 @@ There is no automatic summarization or silent truncation. Commands are bounded a
 ## Validation
 
 Engine tests exercise independent snapshots, collection barriers, late answers, per-agent serialization, stop races, pause behavior, explicit retries, reservation limits, refusals, missing completion, and restart recovery. HTTP tests verify the local service boundary. Browser tests verify actual user interactions and safe text rendering.
+
+## Automatic relay
+
+A relay order contains 1–12 selected participant IDs; IDs may repeat. The first human message invokes only the first participant. The entire order is reserved against the room turn budget at submission. Each hop is a single-recipient all-policy request.
+
+A successful answer and its next-hop request/job are committed in one transaction. The next request replies to the completed answer’s exact message ID. Its context extends the preceding frozen snapshot with that answer; failed, partial, and concurrent sibling responses are excluded. The original human request remains the task prompt. The original participant settings stay frozen through the relay. Later human updates do not silently alter the relay’s submitted base context.
+
+Each hop gets its own response deadline. Failure, refusal, or an interrupted attempt blocks progression. An eligible explicit retry of the current hop can release the next step once. Timeout cancels that relay’s remaining hops and pauses the room. Stop cancels active and queued work and releases unused future relay reservations. Resume never reconstructs cancelled hops.
+
+If a completed hop makes the next context too large, the completed answer stays successful and the relay becomes blocked with an explicit capacity explanation. Stop and start a shorter thread; no source history is silently removed.
