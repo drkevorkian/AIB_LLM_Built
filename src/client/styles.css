@@ -3,6 +3,9 @@
 * {
   box-sizing: border-box;
 }
+[hidden] {
+  display: none !important;
+}
 body {
   margin: 0;
   background: var(--bg);
@@ -233,6 +236,28 @@ p {
   gap: 6px;
   max-height: 24vh;
   overflow-y: auto;
+}
+.workspace-entry,
+.thread-entry {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.workspace-entry > .room-item,
+.thread-entry > button:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.delete-item {
+  flex-shrink: 0;
+}
+.delete-item:hover:not(:disabled),
+.danger-button {
+  color: var(--red);
+  border-color: var(--red-line);
+  background: var(--red-dim);
 }
 .room-item {
   justify-content: flex-start;
@@ -1224,6 +1249,9 @@ progress::-moz-progress-bar {
     max-width: 180px;
     flex-shrink: 0;
   }
+  .thread-entry {
+    max-width: 210px;
+  }
   .conversation {
     min-height: 650px;
   }
@@ -1407,4 +1435,182 @@ progress::-moz-progress-bar {
 }
 .discussion-stop {
   margin-top: 10px;
+}
+
+.settings-open {
+  grid-template-columns: 238px minmax(0, 1fr);
+}
+.settings-page {
+  grid-column: 2 / -1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 32px clamp(24px, 5vw, 80px) 48px;
+}
+.settings-page-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin: 0 auto 28px;
+  max-width: 920px;
+}
+.settings-page-heading h1 {
+  margin-top: 10px;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.8px;
+}
+.settings-page-heading p,
+.settings-section p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  margin-top: 8px;
+}
+.settings-page-heading > button {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.settings-section {
+  max-width: 920px;
+  margin: 0 auto 20px;
+  padding: 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.settings-section-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.settings-section-heading > span {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--teal);
+  padding-top: 3px;
+}
+.settings-section h2 {
+  font-size: 16px;
+  font-weight: 550;
+}
+.settings-section .form-error {
+  color: var(--red);
+}
+.settings-section .notice {
+  color: var(--amber);
+}
+.appearance-field,
+.settings-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 0;
+}
+.settings-grid :is(input, select) {
+  min-width: 0;
+  width: 100%;
+}
+.appearance-field {
+  max-width: 240px;
+  margin-bottom: 24px;
+}
+.settings-participants {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.settings-participant {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  min-width: 0;
+}
+.settings-participant > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settings-participant small {
+  display: block;
+  margin-top: 5px;
+  color: var(--subtle);
+}
+.settings-participant button {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.danger-zone {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  border-color: var(--red-line);
+}
+.danger-zone > div {
+  flex: 1;
+}
+.danger-zone button {
+  flex-shrink: 0;
+}
+.delete-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.delete-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.delete-confirmation .settings-actions {
+  justify-content: flex-end;
+}
+.empty-workspace .primary {
+  margin-top: 24px;
+}
+@media (max-width: 1000px) {
+  .settings-open {
+    grid-template-columns: 205px minmax(0, 1fr);
+  }
+  .settings-page {
+    padding: 24px 20px;
+  }
+  .settings-participant {
+    flex-wrap: wrap;
+  }
+  .settings-participant button {
+    margin-left: 42px;
+  }
+}
+@media (max-width: 700px) {
+  .settings-page {
+    padding: 20px 14px;
+    overflow: visible;
+  }
+  .settings-page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .settings-section {
+    padding: 18px;
+  }
+  .danger-zone {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .settings-participant > div {
+    flex-basis: calc(100% - 42px);
+  }
+  .delete-item {
+    min-height: 36px;
+    min-width: 30px;
+  }
 }

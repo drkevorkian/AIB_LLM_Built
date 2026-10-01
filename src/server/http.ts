@@ -9,6 +9,7 @@ import {
   idSchema,
   connectionTestSchema,
   stopDiscussionSchema,
+  appSettingsSchema,
 } from '../shared/contracts.js';
 import type { ConversationEngine } from './engine.js';
 import { AppError } from './errors.js';
@@ -105,13 +106,21 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
       if (req.method === 'GET' && url.pathname === '/api/session') {
         json(res, 200, {
           token,
-          version: '0.3.0',
+          version: '0.4.0',
           transport: 'configured',
           continuesWithoutClient: true,
         });
         return;
       }
       authenticate(req);
+      if (url.pathname === '/api/settings' && req.method === 'GET') {
+        json(res, 200, engine.settings());
+        return;
+      }
+      if (url.pathname === '/api/settings' && req.method === 'PUT') {
+        json(res, 200, engine.saveSettings(appSettingsSchema.parse(await body(req))));
+        return;
+      }
       if (url.pathname === '/api/providers' && req.method === 'GET') {
         json(res, 200, engine.connections());
         return;
@@ -149,12 +158,36 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         );
         return;
       }
+      const threadMatch = /^\/api\/rooms\/([a-zA-Z0-9_-]+)\/threads\/([a-zA-Z0-9_-]+)$/.exec(
+        url.pathname,
+      );
+      if (threadMatch && req.method === 'DELETE') {
+        json(
+          res,
+          200,
+          engine.deleteThread(idSchema.parse(threadMatch[1]), idSchema.parse(threadMatch[2])),
+        );
+        return;
+      }
       const match =
-        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|export|agents|connection-test|discussion-stop))?$/.exec(
+        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|export|agents|connection-test|discussion-stop|settings))?$/.exec(
           url.pathname,
         );
       if (!match) throw new AppError(404, 'Endpoint not found.');
       const roomId = idSchema.parse(match[1]);
+      if (!match[2] && req.method === 'DELETE') {
+        engine.deleteRoom(roomId);
+        json(res, 200, { ok: true });
+        return;
+      }
+      if (match[2] === 'settings' && req.method === 'PUT') {
+        engine.configureWorkspace(
+          roomId,
+          (await body(req)) as Parameters<typeof engine.configureWorkspace>[1],
+        );
+        json(res, 200, engine.store.get(roomId));
+        return;
+      }
       if (!match[2] && req.method === 'GET') {
         json(res, 200, engine.store.get(roomId));
         return;
@@ -210,9 +243,11 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
             message.authorId === 'human'
               ? 'Human'
               : (room.agents.find((a) => a.id === message.authorId)?.name ?? message.authorId);
-          const binding = room.snapshots
-            .find((s) => s.id === message.snapshotId)
-            ?.agents.find((a) => a.id === message.authorId);
+          const snapshot = room.snapshots.find((s) => s.id === message.snapshotId);
+          const binding = snapshot?.agents.find((a) => a.id === message.authorId);
+          const redaction = snapshot?.deletedMessageIds?.length
+            ? `\n\nContext: ${snapshot.deletedMessageIds.length} source messages removed by thread deletion; historical context is redacted.`
+            : '';
           const attempt = room.jobs.find((j) => j.messageId === message.id);
           const recipients =
             message.recipientIds
@@ -223,7 +258,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
               .join(', ') || 'room observers';
           const action = attempt?.agentAction;
           parts.push(
-            `\n## ${name} · ${message.type} · ${message.status}\n\nMessage: ${message.id} · Thread: ${message.threadId}\n\nTo: ${recipients}\n\nReply to: ${message.replyTo ?? 'none'}${attempt ? `\n\nAttempt: ${attempt.id} · ${attempt.kind}${attempt.previousJobId ? ` · follows ${attempt.previousJobId}` : ''}${attempt.error ? `\n\nAttempt error: ${attempt.error}` : ''}` : ''}${action ? `\n\nAction: ${action.kind} · Policy: ${action.policy} · Quorum: ${action.quorum}` : ''}${binding ? `\n\nProvider: ${binding.provider} · Model: ${binding.model}` : ''}${attempt?.providerRequestId ? `\n\nProvider request: ${attempt.providerRequestId}` : ''}${attempt?.usage ? `\n\nToken usage: ${JSON.stringify(attempt.usage)}` : ''}\n\n${message.body}\n`,
+            `\n## ${name} · ${message.type} · ${message.status}\n\nMessage: ${message.id} · Thread: ${message.threadId}\n\nTo: ${recipients}\n\nReply to: ${message.replyTo ?? 'none'}${redaction}${attempt ? `\n\nAttempt: ${attempt.id} · ${attempt.kind}${attempt.previousJobId ? ` · follows ${attempt.previousJobId}` : ''}${attempt.error ? `\n\nAttempt error: ${attempt.error}` : ''}` : ''}${action ? `\n\nAction: ${action.kind} · Policy: ${action.policy} · Quorum: ${action.quorum}` : ''}${binding ? `\n\nProvider: ${binding.provider} · Model: ${binding.model}` : ''}${attempt?.providerRequestId ? `\n\nProvider request: ${attempt.providerRequestId}` : ''}${attempt?.usage ? `\n\nToken usage: ${JSON.stringify(attempt.usage)}` : ''}\n\n${message.body}\n`,
           );
         }
         res.end(parts.join(''));

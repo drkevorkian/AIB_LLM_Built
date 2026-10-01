@@ -2,7 +2,7 @@
 
 A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** v0.3.0 adds agent-chosen peer questions and targeted follow-ups to the runnable TypeScript application. A human-selected coordinator can ask one or both peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and the full browser flow are tested with fixtures; paid-provider accounts have not been verified in this workspace because credentials are unavailable. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
+**Status:** v0.4.0 adds a dedicated Settings page, persistent conversation defaults, workspace editing, and confirmed workspace/thread deletion to the runnable TypeScript application. A human-selected coordinator can ask one or both peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and the full browser flow are tested with fixtures; paid-provider accounts have not been verified in this workspace because credentials are unavailable. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
 
 ## Overview
 
@@ -25,7 +25,7 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
 
-## Available in v0.3.0
+## Available in v0.4.0
 
 - Configurable OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible text-generation connections, alongside clearly labeled simulation.
 - Participant name/role editing, exact model IDs, model discovery, output limits, and connection timeouts.
@@ -36,11 +36,13 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Strict structured coordinator actions, one bounded correction for an invalid completed decision, repeated-question detection, and a per-discussion Stop control.
 - Persistent rooms/objectives/threads, streaming, frozen context inspection, reported token usage, provider request IDs, and Markdown export.
 - Per-agent queues, pause/resume/stop, explicit bounded retries, and restart recovery.
+- A dedicated Settings page for theme, saved conversation defaults, workspace name/objective/turn limit, and participant connections.
+- Confirmed workspace/thread deletion, cancellation of affected work, removal of copied source context, and an empty state that survives service restart.
 - A responsive React interface with dark/light themes and a loopback-only service with validated local sessions.
 
 New rooms start in simulation so launch does not invoke or bill a provider. Configure participants explicitly to use real models. Missing credentials or failed live requests produce visible failures; they never fall back to simulation.
 
-See [v0.3.0 release notes](docs/releases/0.3.0.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
+See [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
 
 ![Agent discussion through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
 
@@ -106,7 +108,21 @@ Provider keys remain in the service environment. They are absent from room recor
 
 A discussion keeps its submitted objective, roles, and base context frozen. Later updates do not silently replace that context. All/any/quorum closure records the exact included peer answers. Late answers remain separate and do not rewrite the coordinator’s continuation; unfinished late respondents are cancelled when the coordinator finishes. The coordinator may finish without asking peers when the task or allowance calls for it. Exceeding a limit produces a blocked state rather than an invented final answer.
 
-Participant settings cannot be edited while queued/running work, a blocked relay, or an unfinished discussion remains. Stop pending work first. Previously recorded invocation snapshots retain their original provider, model, and role. Explicit retries retain the original snapshot too; send a new question to use a changed model or role.
+Participant and workspace settings cannot be edited while queued/running work, a blocked relay, or an unfinished discussion remains. Stop pending work first. Previously recorded invocation snapshots retain their original provider, model, and role. Explicit retries retain the original snapshot too; send a new question to use a changed model or role.
+
+### Settings and workspace management
+
+Click **Settings** in the header to open the dedicated page; `http://127.0.0.1:4317/#settings` also opens it directly. In this release each sidebar workspace is one conversation room; there is no additional workspace/group hierarchy.
+
+- **Preferences:** choose a theme and save defaults for new workspace turn limits, response deadlines, all/any/quorum collection, synthesis, discussion peer rounds, and discussion turn allowances. Theme stays in this browser; conversation defaults are stored in SQLite and shared by views of the same service. Existing workspaces, active work, and open composers keep their values. Visiting Settings preserves the open composer draft.
+- **Workspace:** edit the selected workspace's name, shared objective, and turn limit. Finish or stop pending work first. The limit cannot be below turns already used. Historical invocation objectives and participant bindings remain recorded; new requests use the revised objective.
+- **Participants & connections:** configure each participant's role, provider/model, output limit, and timeout, or test its saved connection. API credentials remain in the service environment/`.env`; Settings displays their availability without receiving key values.
+- **Delete workspace:** use the trash button beside its sidebar entry or the action at the end of Settings, then confirm the named workspace. This removes its participants, threads, messages, requests, attempts, snapshots, workflows, and local activity. Active generations and connection probes are aborted. Other workspaces remain usable. Deleting the final workspace leaves an empty app, including after restart; **Create workspace** starts a new one.
+- **Delete thread:** use its sidebar trash button and confirm. Its messages, attempts, response sets, relays, and discussions are removed. Stored copies of its messages are also removed from surviving context snapshots. Pending work using that context is cancelled, unused reservations are released, and consumed turns remain counted. Surviving completed answers remain in their threads; a redaction notice identifies historical context changes. Attempts with redacted context cannot be retried; ask a new question instead.
+
+Deletion is permanent within the app and updates other open views. It is logical deletion from active records, not a promise of forensic disk erasure. It cannot retract provider submissions, exported transcripts, external backups, or text already incorporated into answers in another thread. Minimal deleted-command UUIDs remain to reject delayed replay; they retain no message text or command hash. Export first if you need a transcript.
+
+![Settings page with conversation defaults and workspace controls](docs/images/settings.png)
 
 ### Configuration and data
 
@@ -147,7 +163,7 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-The v0.3.0 suite includes engine/service and provider-protocol tests plus 8 Chromium UI tests. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
+The v0.4.0 suite includes 99 engine/service/provider-protocol tests and 12 Chromium UI tests. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
 
 To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. Use `[simulate:follow-up]` in an agent discussion to demonstrate a second round targeting the first peer’s exact answer. These markers belong to simulation and have no special behavior in live providers.
 
@@ -155,7 +171,7 @@ To exercise failure handling in simulation, include `[simulate:fail]`, `[simulat
 
 The rest of this README specifies the full target design. The checked TODO items at the end record completed work; unchecked items remain planned.
 
-The v0.3.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each room currently has three participants; their names, roles, providers, and models are editable.
+The v0.4.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each room currently has three participants; their names, roles, providers, and models are editable.
 
 All messages are room-visible. All/any/quorum are the implemented collection policies. Timeout cancels unfinished work for the affected request and pauses the room; deadlines continue while paused. Each provider also has a connection timeout. Reported usage is stored per attempt; monetary cost estimates and enforced token/cost budgets are not implemented.
 
@@ -396,7 +412,7 @@ Implement domain contracts and a deterministic fake provider before live integra
 
 Contributions should explain the behavior changed, its reason, relevant failure cases, and validation. New routing or recovery behavior requires tests of its observable guarantees. No feature is complete solely because its happy path works once.
 
-TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
+TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
 
 ## Delivery milestones
 
@@ -411,7 +427,7 @@ TypeScript, React, Node 24, SQLite, and local browser operation were selected fo
 
 ## Complete implementation TODO checklist
 
-This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0/v0.2.0/v0.3.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
+This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.4.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
 
 ### 1. Product scope and decisions
 
@@ -765,3 +781,29 @@ This is the complete implementation checklist for the scope described above. Che
 - [ ] Extend agent-authored contributions beyond questions/final results to the full typed-message design.
 - [ ] Add human correction/interjection policies that explicitly revise a discussion’s frozen context and obligations.
 - [ ] Add semantic progress checks and stalled-discussion detection beyond exact repeated questions and wall-clock deadlines.
+
+### 23. v0.4.0 settings and deletion
+
+- [x] Add a dedicated, directly addressable Settings page with desktop and narrow layouts.
+- [x] Keep theme preferences in the browser and preserve open composer drafts when visiting Settings.
+- [x] Persist and strictly validate workspace, deadline, collection, synthesis, and discussion defaults.
+- [x] Apply defaults to newly created workspaces and newly opened composers without changing active work.
+- [x] Support explicit restore-to-defaults in the form, requiring Save to persist the restored values.
+- [x] Edit workspace names, objectives, and turn limits while retaining historical invocation settings and consumed usage.
+- [x] Expose participant/model/role/connection configuration from Settings without sending credential values to the browser.
+- [x] Add named workspace deletion from the sidebar and Settings, with explicit confirmation and Cancel.
+- [x] Add named thread deletion from the sidebar, with explicit confirmation and Cancel.
+- [x] Atomically cascade thread deletion through its messages, response sets, attempts, snapshots, relays, and discussions.
+- [x] Remove deleted source copies from surviving snapshots and identify those snapshots as redacted.
+- [x] Cancel dependent work and prevent retries from reusing deleted context, while retaining unrelated work and historical answers.
+- [x] Abort deleted work and probes, ignore late provider events, and free dispatch capacity during transport cleanup.
+- [x] Release unused reservations without refunding consumed turns or resuming paused workspaces.
+- [x] Preserve monotonic message sequences and minimal replay tombstones across deletion/restart.
+- [x] Propagate deletion to other open views and provide a usable empty state after deleting the final workspace.
+- [x] Seed the welcome workspace once so deleting all workspaces remains effective after service restart.
+- [x] Migrate v1 databases additively to v2 with existing room data retained and preferences stored separately.
+- [x] Verify settings, cancellation, deletion scope, source redaction, late events, replay prevention, persistence, and browser management flows.
+- [ ] Add separate workspace/group hierarchy and membership if multiple rooms need to share a workspace.
+- [ ] Add archive/restore, bulk deletion, thread renaming, and searchable workspace/thread management.
+- [ ] Add encrypted backups, restoration, retention scheduling, and a documented disk-erasure policy.
+- [ ] Add OS-backed credential management and graphical credential editing (also tracked in the live-provider checklist).

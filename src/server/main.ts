@@ -21,7 +21,7 @@ const port = z.coerce
 const dataDir = resolve(process.env.AIB_DATA_DIR ?? defaultData);
 const store = new RoomStore(join(dataDir, 'rooms.sqlite'));
 const engine = new ConversationEngine(store, new LiveProviders());
-if (!store.list().length) {
+if (store.initialize() && !store.list().length) {
   engine.createRoom({
     title: 'The first conversation',
     objective: 'Explore an idea with independent perspectives, then bring the answers together.',
@@ -41,7 +41,7 @@ try {
   throw error;
 }
 console.log(
-  `\nAI Conversation Room v0.3.0\nOpen http://127.0.0.1:${app.port}\nConfigure each participant to use a live provider or simulation.\nData: ${dataDir}\nWork continues while this service is running. Pause or stop before closing a view.\n`,
+  `\nAI Conversation Room v0.4.0\nOpen http://127.0.0.1:${app.port}\nConfigure each participant to use a live provider or simulation.\nData: ${dataDir}\nWork continues while this service is running. Pause or stop before closing a view.\n`,
 );
 let stopping = false;
 async function shutdown() {

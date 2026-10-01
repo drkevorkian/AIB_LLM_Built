@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type {
   Agent,
   ContextSnapshot,
@@ -9,9 +9,15 @@ import type {
   Relay,
   Discussion,
   SendInput,
+  AppSettings,
 } from '../shared/contracts.js';
-import { api, watch } from './api.js';
+import { api, ApiError, watch } from './api.js';
 import { AgentSettings } from './AgentSettings.js';
+import { SettingsPage } from './SettingsPage.js';
+
+type DeleteTarget =
+  | { kind: 'workspace'; id: string; title: string }
+  | { kind: 'thread'; id: string; roomId: string; title: string };
 
 function Glyph({
   kind,
@@ -27,7 +33,8 @@ function Glyph({
     | 'download'
     | 'close'
     | 'branch'
-    | 'inspect';
+    | 'inspect'
+    | 'trash';
   size?: number;
 }) {
   const paths = {
@@ -41,6 +48,7 @@ function Glyph({
     close: 'm6 6 12 12 M6 18 18 6',
     branch: 'M7 3v18 M7 12h6a4 4 0 0 0 4-4V3',
     inspect: 'M4 6h16 M4 12h16 M4 18h10',
+    trash: 'M4 6h16 M9 6V3h6v3 M6 6l1 15h10l1-15 M10 10v7 M14 10v7',
   };
   return (
     <svg
@@ -73,6 +81,10 @@ function time(value: string) {
 
 export function App() {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
+  const [listLoaded, setListLoaded] = useState(false);
+  const [defaults, setDefaults] = useState<AppSettings | null>(null);
+  const [settingsPage, setSettingsPage] = useState(() => location.hash === '#settings');
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [loadedRoom, setRoom] = useState<Room | null>(null);
   const room = loadedRoom?.id === roomId ? loadedRoom : null;
@@ -84,7 +96,9 @@ export function App() {
   const [reply, setReply] = useState<Message | null>(null);
   const [inspect, setInspect] = useState<Message | null>(null);
   const [settings, setSettings] = useState<Agent | null>(null);
-  const [theme, setTheme] = useState(() => localStorage.getItem('aib-theme') ?? 'dark');
+  const [theme, setTheme] = useState<'dark' | 'light'>(() =>
+    localStorage.getItem('aib-theme') === 'light' ? 'light' : 'dark',
+  );
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
@@ -116,7 +130,22 @@ export function App() {
       .then((list) => {
         if (abort.signal.aborted) return;
         setRooms(list);
-        setRoomId((current) => current ?? list[0]?.id ?? null);
+        setListLoaded(true);
+        setRoomId((current) =>
+          current && list.some((r) => r.id === current) ? current : (list[0]?.id ?? null),
+        );
+      })
+      .catch((e: unknown) => {
+        if (!abort.signal.aborted) setError(errorText(e));
+      });
+    return () => abort.abort();
+  }, [tick]);
+  useEffect(() => {
+    const abort = new AbortController();
+    void api
+      .settings(abort.signal)
+      .then((next) => {
+        if (!abort.signal.aborted) setDefaults(next);
       })
       .catch((e: unknown) => {
         if (!abort.signal.aborted) setError(errorText(e));
@@ -137,17 +166,37 @@ export function App() {
     void api
       .room(roomId, abort.signal)
       .then((next) => {
-        if (!abort.signal.aborted) setRoom(next);
+        if (!abort.signal.aborted)
+          setRoom((current) =>
+            current?.id === next.id && current.revision > next.revision ? current : next,
+          );
       })
       .catch((e: unknown) => {
-        if (!abort.signal.aborted) setError(errorText(e));
+        if (!abort.signal.aborted) {
+          if (e instanceof ApiError && e.status === 404) {
+            setRoom(null);
+            setRoomId(null);
+            setTick((v) => v + 1);
+          } else setError(errorText(e));
+        }
       });
     return () => abort.abort();
   }, [roomId, tick]);
   useEffect(() => {
+    if (!room) return;
+    if (threadId && !room.threads.some((t) => t.id === threadId)) setThreadId(null);
+    if (reply && !room.messages.some((m) => m.id === reply.id)) setReply(null);
+    if (inspect && !room.messages.some((m) => m.id === inspect.id)) setInspect(null);
+  }, [room, threadId, reply, inspect]);
+  useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('aib-theme', theme);
   }, [theme]);
+  useEffect(() => {
+    if (settingsPage) history.replaceState(null, '', '#settings');
+    else if (location.hash === '#settings')
+      history.replaceState(null, '', location.pathname + location.search);
+  }, [settingsPage]);
   useEffect(() => {
     if (follow.current && scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -181,10 +230,32 @@ export function App() {
     }
   }
   function chooseThread(id: string | null) {
+    setSettingsPage(false);
     setThreadId(id);
     setReply(null);
     follow.current = true;
     setFollowLatest(true);
+  }
+  async function remove(target: DeleteTarget) {
+    if (target.kind === 'workspace') {
+      await api.deleteWorkspace(target.id);
+      const remaining = rooms.filter((r) => r.id !== target.id);
+      setRooms(remaining);
+      if (roomId === target.id) {
+        setRoom(null);
+        setRoomId(remaining[0]?.id ?? null);
+      }
+    } else {
+      const next = await api.deleteThread(target.roomId, target.id);
+      if (roomId === target.roomId) {
+        setRoom(next);
+        if (threadId === target.id) setThreadId(null);
+        if (reply?.threadId === target.id) setReply(null);
+        if (inspect?.threadId === target.id) setInspect(null);
+      }
+    }
+    setDeleteTarget(null);
+    setTick((v) => v + 1);
   }
   const shown = room?.messages.filter((m) => !threadId || m.threadId === threadId) ?? [];
   const activeCount = room?.jobs.filter((j) => j.status === 'running').length ?? 0;
@@ -219,13 +290,20 @@ export function App() {
           {liveCount
             ? `${liveCount} LIVE AGENT${liveCount === 1 ? '' : 'S'} CONFIGURED`
             : 'SIMULATION'}
-          <span className="version">v0.3.0</span>
+          <span className="version">v0.4.0</span>
         </div>
         <div className="header-actions">
           <span className={`connection ${connected ? 'online' : ''}`}>
             <i />
             {connected ? 'Service connected' : 'Reconnecting'}
           </span>
+          <button
+            className={`quiet compact ${settingsPage ? 'selected' : ''}`}
+            aria-pressed={settingsPage}
+            onClick={() => setSettingsPage((current) => !current)}
+          >
+            Settings
+          </button>
           <button
             className="quiet compact"
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -243,27 +321,40 @@ export function App() {
           </button>
         </div>
       )}
-      <div className="workspace">
+      <div className={`workspace ${settingsPage ? 'settings-open' : ''}`}>
         <aside className="sidebar">
           <div className="section-heading">
             <h2>WORKSPACE</h2>
-            <button className="icon-button" aria-label="New room" onClick={() => setNewRoom(true)}>
+            <button
+              className="icon-button"
+              aria-label="New workspace"
+              disabled={!defaults}
+              onClick={() => setNewRoom(true)}
+            >
               <Glyph kind="plus" />
             </button>
           </div>
           <nav className="room-list" aria-label="Rooms">
             {rooms.map((r) => (
-              <button
-                className={`room-item ${r.id === roomId ? 'selected' : ''}`}
-                key={r.id}
-                onClick={() => setRoomId(r.id)}
-              >
-                <Glyph kind="chat" />
-                <span>
-                  {r.title}
-                  <small>{r.status === 'running' ? 'Open conversation' : r.status}</small>
-                </span>
-              </button>
+              <div className="workspace-entry" key={r.id}>
+                <button
+                  className={`room-item ${r.id === roomId ? 'selected' : ''}`}
+                  onClick={() => setRoomId(r.id)}
+                >
+                  <Glyph kind="chat" />
+                  <span>
+                    {r.title}
+                    <small>{r.status === 'running' ? 'Open conversation' : r.status}</small>
+                  </span>
+                </button>
+                <button
+                  className="icon-button delete-item"
+                  aria-label={`Delete workspace ${r.title}`}
+                  onClick={() => setDeleteTarget({ kind: 'workspace', id: r.id, title: r.title })}
+                >
+                  <Glyph kind="trash" size={15} />
+                </button>
+              </div>
             ))}
           </nav>
           {room && (
@@ -283,15 +374,30 @@ export function App() {
                   <small>{room.messages.length}</small>
                 </button>
                 {room.threads.map((t) => (
-                  <button
-                    className={threadId === t.id ? 'selected' : ''}
-                    key={t.id}
-                    onClick={() => chooseThread(t.id)}
-                  >
-                    <span className="thread-mark">#</span>
-                    <span>{t.title}</span>
-                    <small>{room.messages.filter((m) => m.threadId === t.id).length}</small>
-                  </button>
+                  <div className="thread-entry" key={t.id}>
+                    <button
+                      className={threadId === t.id ? 'selected' : ''}
+                      onClick={() => chooseThread(t.id)}
+                    >
+                      <span className="thread-mark">#</span>
+                      <span>{t.title}</span>
+                      <small>{room.messages.filter((m) => m.threadId === t.id).length}</small>
+                    </button>
+                    <button
+                      className="icon-button delete-item"
+                      aria-label={`Delete thread ${t.title}`}
+                      onClick={() =>
+                        setDeleteTarget({
+                          kind: 'thread',
+                          roomId: room.id,
+                          id: t.id,
+                          title: t.title,
+                        })
+                      }
+                    >
+                      <Glyph kind="trash" size={14} />
+                    </button>
+                  </div>
                 ))}
               </nav>
             </>
@@ -306,14 +412,15 @@ export function App() {
             <span className="muted">Work continues while the service runs.</span>
           </div>
         </aside>
-        <main className="conversation">
+        <main className="conversation" hidden={settingsPage}>
           <div className="conversation-header">
             <div>
               <span className="eyebrow">{threadId ? 'THREAD' : 'CONVERSATION'}</span>
               <h1>
                 {threadId
                   ? room?.threads.find((t) => t.id === threadId)?.title
-                  : (room?.title ?? 'Loading workspace…')}
+                  : (room?.title ??
+                    (listLoaded && !roomId ? 'No workspace selected' : 'Loading workspace…'))}
               </h1>
             </div>
             <button
@@ -392,9 +499,22 @@ export function App() {
               setFollowLatest(follow.current);
             }}
           >
-            {!room && (
+            {!room && roomId && (
               <div className="loading-placeholder" role="status">
                 Opening room…
+              </div>
+            )}
+            {!room && !roomId && listLoaded && (
+              <div className="welcome empty-workspace">
+                <div className="welcome-icon">
+                  <Glyph kind="chat" size={28} />
+                </div>
+                <span className="eyebrow">A FRESH START</span>
+                <h2>No workspaces yet.</h2>
+                <p>Create a workspace to bring your participants and conversations together.</p>
+                <button className="primary" disabled={!defaults} onClick={() => setNewRoom(true)}>
+                  Create workspace
+                </button>
               </div>
             )}
             {room && !shown.length && (
@@ -486,10 +606,11 @@ export function App() {
               Jump to latest ↓
             </button>
           )}
-          {room && (
+          {room && defaults && (
             <Composer
               key={room.id}
               room={room}
+              defaults={defaults}
               threadId={threadId}
               reply={reply}
               onClearReply={() => setReply(null)}
@@ -503,7 +624,7 @@ export function App() {
             />
           )}
         </main>
-        <aside className="activity-panel">
+        <aside className="activity-panel" hidden={settingsPage}>
           <div className="section-heading">
             <h2>PARTICIPANTS</h2>
             <span>{room?.agents.length ?? 0}</span>
@@ -572,15 +693,46 @@ export function App() {
             <small>A mention alone never starts a turn.</small>
           </div>
         </aside>
+        {settingsPage && (
+          <SettingsPage
+            defaults={defaults}
+            room={room}
+            theme={theme}
+            onTheme={setTheme}
+            onDefaultsSaved={(next) => {
+              setDefaults(next);
+              setTick((v) => v + 1);
+            }}
+            onWorkspaceSaved={(next) => {
+              setRoom(next);
+              setTick((v) => v + 1);
+            }}
+            onConfigure={setSettings}
+            onDeleteWorkspace={() => {
+              if (room) setDeleteTarget({ kind: 'workspace', id: room.id, title: room.title });
+            }}
+            onBack={() => setSettingsPage(false)}
+          />
+        )}
       </div>
-      {newRoom && (
+      {newRoom && defaults && (
         <NewRoom
+          defaults={defaults}
           onClose={() => setNewRoom(false)}
           onCreated={(next) => {
+            setRooms((current) => [next, ...current]);
             setRoomId(next.id);
             setTick((v) => v + 1);
             setNewRoom(false);
+            setSettingsPage(false);
           }}
+        />
+      )}
+      {deleteTarget && (
+        <DeleteConfirmation
+          target={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDelete={() => remove(deleteTarget)}
         />
       )}
       {inspect && room && (
@@ -845,6 +997,9 @@ function AgentCard({
   const discussion = room.discussions.find((d) => d.id === latest?.discussionId);
   const retryable =
     latest &&
+    ![latest.snapshotId, request?.snapshotId].some(
+      (id) => room.snapshots.find((s) => s.id === id)?.deletedMessageIds?.length,
+    ) &&
     ['failed', 'interrupted'].includes(latest.status) &&
     request &&
     !['cancelled', 'timed_out'].includes(request.status) &&
@@ -889,6 +1044,7 @@ function AgentCard({
 
 function Composer({
   room,
+  defaults,
   threadId,
   reply,
   onClearReply,
@@ -896,6 +1052,7 @@ function Composer({
   onError,
 }: {
   room: Room;
+  defaults: AppSettings;
   threadId: string | null;
   reply: Message | null;
   onClearReply: () => void;
@@ -906,19 +1063,19 @@ function Composer({
   const [recipients, setRecipients] = useState(room.agents.slice(1).map((a) => a.id));
   const [type, setType] = useState<'question' | 'update' | 'relay' | 'discussion'>('question');
   const [leaderId, setLeaderId] = useState(room.agents[0]!.id);
-  const [maxRounds, setMaxRounds] = useState(3);
-  const [maxTurns, setMaxTurns] = useState(12);
+  const [maxRounds, setMaxRounds] = useState(defaults.defaultDiscussionRounds);
+  const [maxTurns, setMaxTurns] = useState(defaults.defaultDiscussionTurns);
   const [relayOrder, setRelayOrder] = useState([
     room.agents[0]!.id,
     room.agents[2]!.id,
     room.agents[1]!.id,
     room.agents[0]!.id,
   ]);
-  const [policy, setPolicy] = useState<SendInput['policy']>('all');
+  const [policy, setPolicy] = useState<SendInput['policy']>(defaults.defaultPolicy);
   const [quorum, setQuorum] = useState(1);
-  const [synthesis, setSynthesis] = useState(true);
+  const [synthesis, setSynthesis] = useState(defaults.defaultSynthesis);
   const [sending, setSending] = useState(false);
-  const [deadlineSeconds, setDeadlineSeconds] = useState(120);
+  const [deadlineSeconds, setDeadlineSeconds] = useState(defaults.defaultDeadlineSeconds);
   const clientId = useRef<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -1255,15 +1412,24 @@ function Modal({
   children: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const el = dialog.current!;
     el.showModal();
     return () => el.close();
   }, []);
   return (
-    <dialog ref={dialog} onCancel={onClose} className="modal">
+    <dialog
+      ref={dialog}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      className="modal"
+      aria-labelledby={titleId}
+    >
       <div className="modal-heading">
-        <h2>{title}</h2>
+        <h2 id={titleId}>{title}</h2>
         <button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose}>
           <Glyph kind="close" />
         </button>
@@ -1272,10 +1438,80 @@ function Modal({
     </dialog>
   );
 }
-function NewRoom({ onClose, onCreated }: { onClose: () => void; onCreated: (room: Room) => void }) {
+function DeleteConfirmation({
+  target,
+  onClose,
+  onDelete,
+}: {
+  target: DeleteTarget;
+  onClose: () => void;
+  onDelete: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function remove() {
+    setBusy(true);
+    setError('');
+    try {
+      await onDelete();
+    } catch (e) {
+      setError(errorText(e));
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title={`Delete ${target.kind}?`}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <div className="delete-confirmation">
+        <p className="delete-name">{target.title}</p>
+        <p>
+          {target.kind === 'workspace'
+            ? 'This permanently deletes the workspace, its participants, all threads, messages, and local history. Active work is cancelled.'
+            : 'This permanently deletes this thread, its messages, and stored source copies. Pending work that uses this context is cancelled. Other threads and turns already used are kept.'}
+        </p>
+        <p className="muted">
+          This cannot be undone. Copies already sent to providers or exported to files remain
+          outside this app.
+        </p>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="settings-actions">
+          <button type="button" autoFocus disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="danger-button"
+            disabled={busy}
+            onClick={() => {
+              void remove();
+            }}
+          >
+            {busy ? 'Deleting…' : `Delete ${target.kind}`}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+function NewRoom({
+  defaults,
+  onClose,
+  onCreated,
+}: {
+  defaults: AppSettings;
+  onClose: () => void;
+  onCreated: (room: Room) => void;
+}) {
   const [title, setTitle] = useState('');
   const [objective, setObjective] = useState('');
-  const [maxTurns, setMaxTurns] = useState(100);
+  const [maxTurns, setMaxTurns] = useState(defaults.defaultMaxTurns);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function create(e: FormEvent) {
@@ -1289,7 +1525,7 @@ function NewRoom({ onClose, onCreated }: { onClose: () => void; onCreated: (room
     }
   }
   return (
-    <Modal title="New conversation room" onClose={onClose}>
+    <Modal title="New workspace" onClose={onClose}>
       <form
         className="room-form"
         onSubmit={(e) => {
@@ -1297,7 +1533,7 @@ function NewRoom({ onClose, onCreated }: { onClose: () => void; onCreated: (room
         }}
       >
         <label>
-          Room name
+          Workspace name
           <input
             value={title}
             maxLength={100}
@@ -1338,7 +1574,7 @@ function NewRoom({ onClose, onCreated }: { onClose: () => void; onCreated: (room
           </p>
         )}
         <button className="primary" disabled={busy || !title.trim()}>
-          {busy ? 'Creating…' : 'Create room'}
+          {busy ? 'Creating…' : 'Create workspace'}
         </button>
       </form>
     </Modal>
@@ -1347,6 +1583,14 @@ function NewRoom({ onClose, onCreated }: { onClose: () => void; onCreated: (room
 function Snapshot({ snapshot, room }: { snapshot: ContextSnapshot; room: Room }) {
   return (
     <div className="snapshot">
+      {!!snapshot.deletedMessageIds?.length && (
+        <p className="notice">
+          {snapshot.deletedMessageIds.length} source{' '}
+          {snapshot.deletedMessageIds.length === 1 ? 'message was' : 'messages were'} removed by
+          thread deletion. This is a redacted record of the prior invocation and cannot be reused
+          for a retry.
+        </p>
+      )}
       <div className="snapshot-meta">
         <Badge value="frozen" />
         <span>

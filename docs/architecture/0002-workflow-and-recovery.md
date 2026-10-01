@@ -41,6 +41,8 @@ Live adapters preserve provider-reported request IDs and usage. Provider-specifi
 
 Initial snapshots include complete messages in the relevant thread and complete room updates. Recipient jobs share that same snapshot even if they start at different times. Each answer invocation receives no sibling-answer side channel.
 
+Explicit human thread deletion is an exception to context immutability: removed sources are redacted from stored copies, affected pending work is cancelled, and affected attempts cannot retry against altered context. Inspection/export identifies redacted historical snapshots. See [settings and deletion](0005-settings-and-deletion.md).
+
 There is no automatic summarization or silent truncation. Commands are bounded at 12,000 characters, provider output at 20,000 characters, and snapshot text at 64,000 characters. New requests that exceed snapshot capacity are rejected atomically. If completed answers make synthesis too large, the answer set remains ready and the synthesis job records a capacity failure. A successful answer is not retroactively relabeled as failed.
 
 ## Validation

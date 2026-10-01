@@ -6,9 +6,20 @@ import type {
   SendResult,
   AgentSettingsInput,
   ProviderStatus,
+  AppSettings,
+  WorkspaceSettingsInput,
 } from '../shared/contracts.js';
 
 let tokenPromise: Promise<string> | null = null;
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 async function token(): Promise<string> {
   tokenPromise ??= fetch('/api/session')
     .then(async (response) => {
@@ -37,12 +48,32 @@ async function request(path: string, options: RequestInit = {}, retry = true): P
   }
   if (!response.ok) {
     const error = (await response.json()) as { error?: string; details?: string[] };
-    throw new Error(error.details?.join(' · ') ?? error.error ?? 'The request failed.');
+    throw new ApiError(
+      response.status,
+      error.details?.join(' · ') ?? error.error ?? 'The request failed.',
+    );
   }
   return response;
 }
 
 export const api = {
+  settings: async (signal?: AbortSignal) =>
+    (await request('/settings', { signal })).json() as Promise<AppSettings>,
+  saveSettings: async (input: AppSettings) =>
+    (
+      await request('/settings', { method: 'PUT', body: JSON.stringify(input) })
+    ).json() as Promise<AppSettings>,
+  configureWorkspace: async (id: string, input: WorkspaceSettingsInput) =>
+    (
+      await request(`/rooms/${id}/settings`, { method: 'PUT', body: JSON.stringify(input) })
+    ).json() as Promise<Room>,
+  deleteWorkspace: async (id: string) => {
+    await request(`/rooms/${id}`, { method: 'DELETE' });
+  },
+  deleteThread: async (id: string, threadId: string) =>
+    (
+      await request(`/rooms/${id}/threads/${threadId}`, { method: 'DELETE' })
+    ).json() as Promise<Room>,
   providers: async () => (await request('/providers')).json() as Promise<ProviderStatus[]>,
   models: async (provider: string, baseUrl: string) =>
     (

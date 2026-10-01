@@ -34,6 +34,29 @@ export const createRoomSchema = z.strictObject({
   objective: z.string().trim().max(3000).default(''),
   maxTurns: z.number().int().min(1).max(1000).default(100),
 });
+export const appSettingsSchema = z.strictObject({
+  defaultMaxTurns: z.number().int().min(1).max(1000),
+  defaultDeadlineSeconds: z.number().int().min(5).max(600),
+  defaultPolicy: z.enum(['all', 'any', 'quorum']),
+  defaultSynthesis: z.boolean(),
+  defaultDiscussionRounds: z.number().int().min(1).max(10),
+  defaultDiscussionTurns: z.number().int().min(2).max(50),
+});
+export type AppSettings = z.infer<typeof appSettingsSchema>;
+export const defaultAppSettings: AppSettings = {
+  defaultMaxTurns: 100,
+  defaultDeadlineSeconds: 120,
+  defaultPolicy: 'all',
+  defaultSynthesis: true,
+  defaultDiscussionRounds: 3,
+  defaultDiscussionTurns: 12,
+};
+export const workspaceSettingsSchema = z.strictObject({
+  title: z.string().trim().min(1).max(100),
+  objective: z.string().trim().max(3000),
+  maxTurns: z.number().int().min(1).max(1000),
+});
+export type WorkspaceSettingsInput = z.infer<typeof workspaceSettingsSchema>;
 export const sendSchema = z.strictObject({
   clientId: z.string().uuid(),
   body: z.string().trim().min(1).max(12000),
@@ -129,6 +152,8 @@ export interface ContextSnapshot {
   agents: Agent[];
   messages: Pick<Message, 'id' | 'authorId' | 'type' | 'body'>[];
   createdAt: string;
+  /** Human deletion redacts source copies; these snapshots cannot be reused for retries. */
+  deletedMessageIds?: string[];
 }
 export interface Request {
   id: string;
@@ -217,6 +242,10 @@ export interface Room {
   updatedAt: string;
   maxTurns: number;
   turnsUsed: number;
+  /** Monotonic even when the most recent thread is deleted. */
+  messageSequence?: number;
+  /** Minimal replay tombstones retain UUIDs, never deleted text or command hashes. */
+  deletedClientIds?: string[];
   agents: Agent[];
   threads: Thread[];
   messages: Message[];

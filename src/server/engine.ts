@@ -14,12 +14,15 @@ import type {
   ProviderStatus,
   AgentAction,
   Discussion,
+  AppSettings,
+  WorkspaceSettingsInput,
 } from '../shared/contracts.js';
 import {
   agentActionSchema,
   agentSettingsSchema,
   createRoomSchema,
   sendSchema,
+  workspaceSettingsSchema,
 } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
@@ -104,6 +107,163 @@ export class ConversationEngine extends EventEmitter {
 
   connections(): ProviderStatus[] {
     return this.provider.connections?.() ?? [];
+  }
+
+  settings(): AppSettings {
+    return this.store.settings();
+  }
+
+  saveSettings(input: AppSettings): AppSettings {
+    const saved = this.store.saveSettings(input);
+    this.changed('settings');
+    return saved;
+  }
+
+  configureWorkspace(roomId: string, raw: WorkspaceSettingsInput): void {
+    const input = workspaceSettingsSchema.parse(raw);
+    this.store.mutate(roomId, (room) => {
+      if (
+        room.jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
+        room.relays.some((r) => ['running', 'blocked'].includes(r.status)) ||
+        room.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status)) ||
+        room.agents.some((a) => this.connectionChecks.has(a.id))
+      )
+        throw new AppError(409, 'Finish or stop pending work before editing workspace settings.');
+      room.maxTurns = input.maxTurns;
+      this.reserve(room, 0);
+      room.title = input.title;
+      room.objective = input.objective;
+      this.audit(
+        room,
+        'room.configured',
+        'Workspace name, objective, and turn limit updated. Previous invocation snapshots retain their settings.',
+      );
+    });
+    this.changed(roomId);
+  }
+
+  deleteRoom(roomId: string): void {
+    const room = this.store.get(roomId);
+    this.store.delete(roomId);
+    // Commit deletion before aborting. Abort is synchronous: late stream events see the signal.
+    for (const [id, task] of this.active)
+      if (task.roomId === roomId) {
+        task.abort.abort();
+        this.active.delete(id);
+      }
+    for (const agent of room.agents) {
+      this.connectionChecks.get(agent.id)?.abort();
+      this.connectionChecks.delete(agent.id);
+    }
+    this.changed(roomId);
+  }
+
+  deleteThread(roomId: string, threadId: string): Room {
+    const abortIds = this.store.mutate(roomId, (room) => {
+      if (!room.threads.some((t) => t.id === threadId))
+        throw new AppError(404, 'Thread not found.');
+      room.messageSequence ??= room.messages.reduce((n, m) => Math.max(n, m.sequence), 0);
+      const messageIds = new Set(
+        room.messages.filter((m) => m.threadId === threadId).map((m) => m.id),
+      );
+      room.deletedClientIds = [
+        ...new Set([
+          ...(room.deletedClientIds ?? []),
+          ...room.messages
+            .filter((m) => m.threadId === threadId && m.clientId)
+            .map((m) => m.clientId!),
+        ]),
+      ];
+      const removedRequests = new Set(
+        room.requests.filter((r) => r.threadId === threadId).map((r) => r.id),
+      );
+      const affectedSnapshots = new Set(
+        room.snapshots.filter((s) => s.messages.some((m) => messageIds.has(m.id))).map((s) => s.id),
+      );
+      const affectedRequests = new Set(
+        room.requests
+          .filter(
+            (r) =>
+              removedRequests.has(r.id) ||
+              affectedSnapshots.has(r.snapshotId) ||
+              room.jobs.some((j) => j.requestId === r.id && affectedSnapshots.has(j.snapshotId)),
+          )
+          .map((r) => r.id),
+      );
+      const reason =
+        'Source context was removed by thread deletion. Ask a new question to continue.';
+      // Shared updates can appear in other threads' frozen context. Cancel that whole
+      // workflow before redaction, rather than resume a partially altered invocation.
+      for (const discussion of room.discussions) {
+        if (
+          discussion.threadId === threadId ||
+          discussion.requestIds.some((id) => affectedRequests.has(id))
+        ) {
+          for (const id of discussion.requestIds) affectedRequests.add(id);
+          if (!['completed', 'cancelled'].includes(discussion.status))
+            this.cancelDiscussion(room, discussion, reason);
+        }
+      }
+      for (const relay of room.relays) {
+        if (
+          relay.threadId === threadId ||
+          relay.requestIds.some((id) => affectedRequests.has(id))
+        ) {
+          for (const id of relay.requestIds) affectedRequests.add(id);
+          if (['running', 'blocked'].includes(relay.status)) {
+            relay.status = 'cancelled';
+            relay.error = reason;
+          }
+        }
+      }
+      for (const request of room.requests) {
+        if (
+          affectedRequests.has(request.id) &&
+          ['collecting', 'unresolved'].includes(request.status)
+        ) {
+          request.status = 'cancelled';
+          request.closedAt = this.timestamp();
+        }
+      }
+      const abortIds: string[] = [];
+      for (const job of room.jobs) {
+        if (!affectedRequests.has(job.requestId)) continue;
+        if (this.cancelJob(room, job)) job.error = reason;
+        if (job.status === 'cancelled') abortIds.push(job.id);
+      }
+      room.threads = room.threads.filter((t) => t.id !== threadId);
+      room.messages = room.messages.filter((m) => !messageIds.has(m.id));
+      room.requests = room.requests.filter((r) => !removedRequests.has(r.id));
+      room.jobs = room.jobs.filter((j) => !removedRequests.has(j.requestId));
+      room.relays = room.relays.filter((r) => r.threadId !== threadId);
+      room.discussions = room.discussions.filter((d) => d.threadId !== threadId);
+      const referencedSnapshots = new Set([
+        ...room.messages.map((m) => m.snapshotId),
+        ...room.requests.map((r) => r.snapshotId),
+        ...room.jobs.map((j) => j.snapshotId),
+      ]);
+      room.snapshots = room.snapshots.filter((s) => referencedSnapshots.has(s.id));
+      for (const snapshot of room.snapshots) {
+        const removed = snapshot.messages.filter((m) => messageIds.has(m.id));
+        if (!removed.length) continue;
+        snapshot.deletedMessageIds = [
+          ...new Set([...(snapshot.deletedMessageIds ?? []), ...removed.map((m) => m.id)]),
+        ];
+        snapshot.messages = snapshot.messages.filter((m) => !messageIds.has(m.id));
+      }
+      this.audit(
+        room,
+        'thread.deleted',
+        `Deleted ${messageIds.size} messages and their stored source copies. Work using the removed context was cancelled; consumed turns are retained.`,
+      );
+      return abortIds;
+    });
+    for (const id of abortIds) {
+      this.active.get(id)?.abort.abort();
+      this.active.delete(id);
+    }
+    this.changed(roomId);
+    return this.store.get(roomId);
   }
 
   async models(provider: string, baseUrl: string): Promise<string[]> {
@@ -203,7 +363,13 @@ export class ConversationEngine extends EventEmitter {
     if (!input.relayOrder.length) delete (canonical as Partial<typeof input>).relayOrder;
     if (!input.discussion) delete (canonical as Partial<typeof input>).discussion;
     const commandHash = createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
-    const previous = this.store.get(roomId).messages.find((m) => m.clientId === input.clientId);
+    const current = this.store.get(roomId);
+    if (current.deletedClientIds?.includes(input.clientId))
+      throw new AppError(
+        409,
+        'This message was deleted. Start a new message instead of replaying it.',
+      );
+    const previous = current.messages.find((m) => m.clientId === input.clientId);
     if (previous) {
       if (previous.commandHash !== commandHash)
         throw new AppError(409, 'Send ID already used for different content.');
@@ -287,7 +453,7 @@ export class ConversationEngine extends EventEmitter {
       const requestId = input.type === 'question' ? this.id() : null;
       const message: Message = {
         id: this.id(),
-        sequence: room.messages.length + 1,
+        sequence: this.nextSequence(room),
         threadId,
         authorId: 'human',
         recipientIds: input.recipientIds,
@@ -454,6 +620,15 @@ export class ConversationEngine extends EventEmitter {
         throw new AppError(400, 'Only failed or interrupted work can be retried.');
       const request = room.requests.find((r) => r.id === previous.requestId)!;
       if (
+        [previous.snapshotId, request.snapshotId].some(
+          (id) => room.snapshots.find((s) => s.id === id)?.deletedMessageIds?.length,
+        )
+      )
+        throw new AppError(
+          409,
+          'This attempt used deleted context. Ask a new question instead of retrying.',
+        );
+      if (
         room.status === 'stopped' ||
         request.status === 'cancelled' ||
         request.status === 'timed_out'
@@ -597,7 +772,7 @@ export class ConversationEngine extends EventEmitter {
       if (discussion) discussion.turnsUsed += 1;
       room.messages.push({
         id: job.messageId,
-        sequence: room.messages.length + 1,
+        sequence: this.nextSequence(room),
         threadId: request.threadId,
         authorId: job.agentId,
         recipientIds:
@@ -1264,7 +1439,7 @@ export class ConversationEngine extends EventEmitter {
       );
     return {
       id: this.id(),
-      sequence: room.messages.length,
+      sequence: room.messageSequence ?? room.messages.reduce((n, m) => Math.max(n, m.sequence), 0),
       objective: room.objective,
       agents: structuredClone(room.agents),
       messages: messages.map(({ id, authorId, type, body }) => ({ id, authorId, type, body })),
@@ -1293,6 +1468,11 @@ export class ConversationEngine extends EventEmitter {
 
   private audit(room: Room, type: string, detail: string): void {
     room.events.push({ id: this.id(), type, detail, createdAt: this.timestamp() });
+  }
+  private nextSequence(room: Room): number {
+    room.messageSequence =
+      (room.messageSequence ?? room.messages.reduce((n, m) => Math.max(n, m.sequence), 0)) + 1;
+    return room.messageSequence;
   }
   private timestamp(): string {
     return this.now().toISOString();
