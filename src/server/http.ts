@@ -106,7 +106,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
       if (req.method === 'GET' && url.pathname === '/api/session') {
         json(res, 200, {
           token,
-          version: '0.4.0',
+          version: '0.4.1',
           transport: 'configured',
           continuesWithoutClient: true,
         });

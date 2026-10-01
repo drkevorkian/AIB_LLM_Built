@@ -1,10 +1,10 @@
 # ADR 0001: TypeScript for the first implementation
 
-Status: Accepted for v0.1.0.
+Status: Accepted for v0.1.0; Node 26 support added in v0.4.1.
 
 ## Decision
 
-Use TypeScript across the graphical client, local application service, conversation engine, shared contracts, and tests. Use React for the interface, Node.js 24 for the service, and SQLite through an isolated persistence class.
+Use TypeScript across the graphical client, local application service, conversation engine, shared contracts, and tests. Use React for the interface, Node.js 26 or 24 within the supported ranges for the service, and SQLite through an isolated persistence class.
 
 TypeScript is the best fit for this project's first implementation because the dominant problems are message contracts, concurrent I/O, interface state, and provider integration. Sharing validated contracts between the service and client reduces the chance of routing and state fields drifting apart. Most work waits on provider responses rather than performing CPU-heavy computation.
 
@@ -35,13 +35,14 @@ The initial `RoomStore` saves a versioned room document transactionally in SQLit
 
 This is not a multi-worker event-sourcing system. Large-history pagination, compacted snapshots, normalized entity tables, migrations, and backup tooling remain on the roadmap.
 
-The tested Node version is 24.19.0, with a minimum of 24.15.0. Node's built-in SQLite API is a release candidate in this series. The `RoomStore` boundary permits replacing the driver without changing the engine or client. Reassess that driver before a production release.
+The tested Node versions are 26.10.0 and 24.19.0. Supported ranges are 26.10 or later in 26.x and 24.15 or later in 24.x; `.nvmrc` selects 26.10.0. CI exercises both tested versions on Linux, Windows, and macOS. Node's built-in SQLite API is a release candidate in both series. The `RoomStore` boundary permits replacing the driver without changing the engine or client. Reassess that driver before a production release.
 
 ## Sources consulted
 
 - [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/)
 - [React documentation](https://react.dev/learn)
 - [Node 24.19 SQLite documentation](https://nodejs.org/download/release/v24.19.0/docs/api/sqlite.html)
+- [Node 26.10 SQLite documentation](https://nodejs.org/download/release/v26.10.0/docs/api/sqlite.html)
 - [Vite documentation](https://vite.dev/guide/)
 
 Dependencies are locked in `package-lock.json`. The decision does not promise indefinite compatibility with unpinned future releases.

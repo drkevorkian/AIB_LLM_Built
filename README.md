@@ -2,7 +2,7 @@
 
 A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** v0.4.0 adds a dedicated Settings page, persistent conversation defaults, workspace editing, and confirmed workspace/thread deletion to the runnable TypeScript application. A human-selected coordinator can ask one or both peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and the full browser flow are tested with fixtures; paid-provider accounts have not been verified in this workspace because credentials are unavailable. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
+**Status:** v0.4.1 supports Node.js 26.10 alongside Node 24. The application includes a dedicated Settings page, persistent conversation defaults, workspace editing, and confirmed workspace/thread deletion. A human-selected coordinator can ask one or both peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and the full browser flow are tested with fixtures; paid-provider accounts have not been verified in this workspace because credentials are unavailable. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
 
 ## Overview
 
@@ -25,7 +25,7 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
 
-## Available in v0.4.0
+## Available in v0.4.1
 
 - Configurable OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible text-generation connections, alongside clearly labeled simulation.
 - Participant name/role editing, exact model IDs, model discovery, output limits, and connection timeouts.
@@ -42,7 +42,7 @@ You can ask two agents for independent opinions, wait for both, send their answe
 
 New rooms start in simulation so launch does not invoke or bill a provider. Configure participants explicitly to use real models. Missing credentials or failed live requests produce visible failures; they never fall back to simulation.
 
-See [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
+See [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
 
 ![Agent discussion through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
 
@@ -65,7 +65,7 @@ See [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract]
 
 ## Getting started
 
-Install **Node.js 24.15 or newer in the 24.x series**. This build was verified on Linux with Node 24.19.0. The source workflow is checked by CI on Linux, Windows, and macOS; Chromium UI coverage runs on Linux. A native desktop installer is planned.
+Install **Node.js 26.10 or newer in the 26.x series**. **Node.js 24.15 or newer in the 24.x series** is also supported. `.nvmrc` selects 26.10.0 when using nvm. This build was verified on Linux with Node 26.10.0 and 24.19.0. CI checks both versions on Linux, Windows, and macOS; Chromium UI coverage runs on Linux for both runtimes. A native desktop installer is planned.
 
 ```sh
 git clone https://github.com/drkevorkian/AIB_LLM_Built.git
@@ -163,7 +163,7 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-The v0.4.0 suite includes 99 engine/service/provider-protocol tests and 12 Chromium UI tests. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
+The v0.4.1 suite includes 99 engine/service/provider-protocol tests and 12 Chromium UI tests, verified under both Node 26.10.0 and 24.19.0. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
 
 To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. Use `[simulate:follow-up]` in an agent discussion to demonstrate a second round targeting the first peer’s exact answer. These markers belong to simulation and have no special behavior in live providers.
 
@@ -171,7 +171,7 @@ To exercise failure handling in simulation, include `[simulate:fail]`, `[simulat
 
 The rest of this README specifies the full target design. The checked TODO items at the end record completed work; unchecked items remain planned.
 
-The v0.4.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each room currently has three participants; their names, roles, providers, and models are editable.
+The v0.4.1 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each room currently has three participants; their names, roles, providers, and models are editable.
 
 All messages are room-visible. All/any/quorum are the implemented collection policies. Timeout cancels unfinished work for the affected request and pauses the room; deadlines continue while paused. Each provider also has a connection timeout. Reported usage is stored per attempt; monetary cost estimates and enforced token/cost budgets are not implemented.
 
@@ -412,7 +412,7 @@ Implement domain contracts and a deterministic fake provider before live integra
 
 Contributions should explain the behavior changed, its reason, relevant failure cases, and validation. New routing or recovery behavior requires tests of its observable guarantees. No feature is complete solely because its happy path works once.
 
-TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
+TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
 
 ## Delivery milestones
 
@@ -427,7 +427,7 @@ TypeScript, React, Node 24, SQLite, and local browser operation were selected fo
 
 ## Complete implementation TODO checklist
 
-This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.4.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
+This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.4.1 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
 
 ### 1. Product scope and decisions
 
@@ -807,3 +807,11 @@ This is the complete implementation checklist for the scope described above. Che
 - [ ] Add archive/restore, bulk deletion, thread renaming, and searchable workspace/thread management.
 - [ ] Add encrypted backups, restoration, retention scheduling, and a documented disk-erasure policy.
 - [ ] Add OS-backed credential management and graphical credential editing (also tracked in the live-provider checklist).
+
+### 24. v0.4.1 Node 26 compatibility
+
+- [x] Accept Node 26.10 and newer 26.x releases while retaining the supported Node 24 range.
+- [x] Select Node 26.10.0 for nvm and update Node TypeScript declarations and the dependency lockfile.
+- [x] Allow the pinned esbuild installation hook for the npm version bundled with Node 26.10.
+- [x] Verify installation, type checking, formatting, the production build, SQLite persistence/recovery, provider fixtures, and Chromium workflows under Node 26.10.0.
+- [x] Check Node 24.19.0 and 26.10.0 across Linux, Windows, and macOS in CI, with Chromium coverage for both runtimes on Linux.

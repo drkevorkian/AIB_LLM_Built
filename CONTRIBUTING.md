@@ -1,6 +1,6 @@
 # Contributing
 
-Use Node.js 24.15 or later in the 24.x series and install the locked dependencies with `npm ci`.
+Use Node.js 26.10 or later in the 26.x series, or Node.js 24.15 or later in the 24.x series. `.nvmrc` selects 26.10.0 for developers using nvm. Install the locked dependencies with `npm ci`. CI checks both Node 24.19.0 and 26.10.0 on Linux, Windows, and macOS, with Chromium tests on Linux for both runtimes.
 
 ```sh
 npm run dev
