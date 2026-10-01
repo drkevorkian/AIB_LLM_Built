@@ -80,188 +80,195 @@ export function AgentSettings({
   const custom = value.provider === 'ollama' || value.provider === 'openai-compatible';
   return (
     <form className="room-form agent-settings" onSubmit={save}>
-      {pending && (
-        <p className="notice">Finish or stop pending work before saving participant settings.</p>
-      )}
-      {!room.agents.some((a) => a.id === agent.id && isAgentActive(a)) && (
+      {room.archivedAt && (
         <p className="notice">
-          This participant is inactive. You can edit its connection settings; reactivate it before
-          sending or testing.
+          Restore this workspace before saving settings or testing a connection.
         </p>
       )}
-      <div className="settings-grid">
+      <fieldset className="settings-fields" disabled={Boolean(room.archivedAt)}>
+        {pending && (
+          <p className="notice">Finish or stop pending work before saving participant settings.</p>
+        )}
+        {!room.agents.some((a) => a.id === agent.id && isAgentActive(a)) && (
+          <p className="notice">
+            This participant is inactive. You can edit its connection settings; reactivate it before
+            sending or testing.
+          </p>
+        )}
+        <div className="settings-grid">
+          <label>
+            Participant name
+            <input
+              required
+              maxLength={60}
+              value={value.name}
+              onChange={(e) => update({ name: e.target.value })}
+            />
+          </label>
+          <label>
+            Provider
+            <select
+              aria-label="Provider"
+              value={value.provider}
+              onChange={(e) => {
+                const provider = e.target.value as ProviderKind;
+                update({
+                  provider,
+                  model: provider === 'simulated' ? 'simulation-v1' : '',
+                  baseUrl: provider === 'ollama' ? 'http://127.0.0.1:11434' : '',
+                });
+                setModels([]);
+              }}
+            >
+              {providers.map((p) => (
+                <option value={p.id} key={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <label>
-          Participant name
-          <input
+          Role and instructions
+          <textarea
             required
-            maxLength={60}
-            value={value.name}
-            onChange={(e) => update({ name: e.target.value })}
+            rows={3}
+            maxLength={3000}
+            value={value.role}
+            onChange={(e) => update({ role: e.target.value })}
           />
         </label>
+        {custom && (
+          <label>
+            Server URL
+            <input
+              type="url"
+              required
+              value={value.baseUrl}
+              placeholder={
+                value.provider === 'ollama'
+                  ? 'http://127.0.0.1:11434'
+                  : 'https://your-server.example/v1'
+              }
+              onChange={(e) => update({ baseUrl: e.target.value })}
+            />
+          </label>
+        )}
         <label>
-          Provider
-          <select
-            aria-label="Provider"
-            value={value.provider}
-            onChange={(e) => {
-              const provider = e.target.value as ProviderKind;
-              update({
-                provider,
-                model: provider === 'simulated' ? 'simulation-v1' : '',
-                baseUrl: provider === 'ollama' ? 'http://127.0.0.1:11434' : '',
-              });
-              setModels([]);
-            }}
-          >
-            {providers.map((p) => (
-              <option value={p.id} key={p.id}>
-                {p.name}
-              </option>
+          Model ID
+          <input
+            required
+            list={`models-${agent.id}`}
+            maxLength={200}
+            value={value.model}
+            placeholder="Exact text-generation model ID from your provider"
+            onChange={(e) => update({ model: e.target.value })}
+          />
+          <datalist id={`models-${agent.id}`}>
+            {models.map((id) => (
+              <option key={id} value={id} />
             ))}
-          </select>
+          </datalist>
         </label>
-      </div>
-      <label>
-        Role and instructions
-        <textarea
-          required
-          rows={3}
-          maxLength={3000}
-          value={value.role}
-          onChange={(e) => update({ role: e.target.value })}
-        />
-      </label>
-      {custom && (
-        <label>
-          Server URL
-          <input
-            type="url"
-            required
-            value={value.baseUrl}
-            placeholder={
-              value.provider === 'ollama'
-                ? 'http://127.0.0.1:11434'
-                : 'https://your-server.example/v1'
-            }
-            onChange={(e) => update({ baseUrl: e.target.value })}
-          />
-        </label>
-      )}
-      <label>
-        Model ID
-        <input
-          required
-          list={`models-${agent.id}`}
-          maxLength={200}
-          value={value.model}
-          placeholder="Exact text-generation model ID from your provider"
-          onChange={(e) => update({ model: e.target.value })}
-        />
-        <datalist id={`models-${agent.id}`}>
-          {models.map((id) => (
-            <option key={id} value={id} />
-          ))}
-        </datalist>
-      </label>
-      <button
-        type="button"
-        className="quiet"
-        disabled={busy || (custom && !value.baseUrl)}
-        onClick={() => {
-          void action(async () => {
-            const names = await api.models(value.provider, value.baseUrl ?? '');
-            setModels(names);
-            setResult(
-              `${names.length} model IDs loaded. Choose a text-generation model supported by this connection.`,
-            );
-          });
-        }}
-      >
-        Load available models
-      </button>
-      <div className="settings-grid">
-        <label>
-          Output token limit
-          <input
-            required
-            type="number"
-            min={128}
-            max={16384}
-            value={value.maxOutputTokens}
-            onChange={(e) => update({ maxOutputTokens: Number(e.target.value) })}
-          />
-        </label>
-        <label>
-          Connection timeout (seconds)
-          <input
-            required
-            type="number"
-            min={5}
-            max={600}
-            value={value.timeoutSeconds}
-            onChange={(e) => update({ timeoutSeconds: Number(e.target.value) })}
-          />
-        </label>
-      </div>
-      {provider?.keyEnvironment && (
-        <p className="credential-status">
-          {value.provider === 'openai-compatible'
-            ? 'Optional server key'
-            : provider.configured
-              ? 'API key is set in the service'
-              : 'API key is missing'}
-          : <code>{provider.keyEnvironment}</code>. Set it in your local <code>.env</code> file or
-          service environment, then restart the service. Keys are never stored in the room or
-          returned to this page.
-        </p>
-      )}
-      <p className="muted">
-        {value.provider === 'simulated'
-          ? 'Simulation produces predefined text and makes no external calls.'
-          : value.provider === 'ollama'
-            ? 'Start Ollama locally and install your selected model before sending.'
-            : 'This uses the provider API. Browser account sessions and website subscriptions are separate.'}
-      </p>
-      <p className="muted">
-        Live turns send the shared objective, participant roles, frozen thread context, and your
-        current request to the selected provider. Test connection sends only a short greeting
-        request and the participant roles. It may incur provider charges and does not consume a room
-        turn.
-      </p>
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
-      {result && (
-        <p className="connection-result" role="status">
-          {result}
-        </p>
-      )}
-      <div className="settings-actions">
-        <button className="primary" disabled={busy || pending}>
-          {busy ? 'Working…' : 'Save settings'}
-        </button>
         <button
           type="button"
-          disabled={
-            busy ||
-            pending ||
-            !saved ||
-            !room.agents.some((a) => a.id === agent.id && isAgentActive(a)) ||
-            (!provider?.configured && value.provider !== 'openai-compatible')
-          }
+          className="quiet"
+          disabled={busy || (custom && !value.baseUrl)}
           onClick={() => {
             void action(async () => {
-              const { reply } = await api.testConnection(room.id, agent.id);
-              setResult(`Connection succeeded: ${reply}`);
+              const names = await api.models(value.provider, value.baseUrl ?? '');
+              setModels(names);
+              setResult(
+                `${names.length} model IDs loaded. Choose a text-generation model supported by this connection.`,
+              );
             });
           }}
         >
-          Test connection
+          Load available models
         </button>
-      </div>
+        <div className="settings-grid">
+          <label>
+            Output token limit
+            <input
+              required
+              type="number"
+              min={128}
+              max={16384}
+              value={value.maxOutputTokens}
+              onChange={(e) => update({ maxOutputTokens: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            Connection timeout (seconds)
+            <input
+              required
+              type="number"
+              min={5}
+              max={600}
+              value={value.timeoutSeconds}
+              onChange={(e) => update({ timeoutSeconds: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+        {provider?.keyEnvironment && (
+          <p className="credential-status">
+            {value.provider === 'openai-compatible'
+              ? 'Optional server key'
+              : provider.configured
+                ? 'API key is set in the service'
+                : 'API key is missing'}
+            : <code>{provider.keyEnvironment}</code>. Set it in your local <code>.env</code> file or
+            service environment, then restart the service. Keys are never stored in the room or
+            returned to this page.
+          </p>
+        )}
+        <p className="muted">
+          {value.provider === 'simulated'
+            ? 'Simulation produces predefined text and makes no external calls.'
+            : value.provider === 'ollama'
+              ? 'Start Ollama locally and install your selected model before sending.'
+              : 'This uses the provider API. Browser account sessions and website subscriptions are separate.'}
+        </p>
+        <p className="muted">
+          Live turns send the shared objective, participant roles, frozen thread context, and your
+          current request to the selected provider. Test connection sends only a short greeting
+          request and the participant roles. It may incur provider charges and does not consume a
+          room turn.
+        </p>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        {result && (
+          <p className="connection-result" role="status">
+            {result}
+          </p>
+        )}
+        <div className="settings-actions">
+          <button className="primary" disabled={busy || pending}>
+            {busy ? 'Working…' : 'Save settings'}
+          </button>
+          <button
+            type="button"
+            disabled={
+              busy ||
+              pending ||
+              !saved ||
+              !room.agents.some((a) => a.id === agent.id && isAgentActive(a)) ||
+              (!provider?.configured && value.provider !== 'openai-compatible')
+            }
+            onClick={() => {
+              void action(async () => {
+                const { reply } = await api.testConnection(room.id, agent.id);
+                setResult(`Connection succeeded: ${reply}`);
+              });
+            }}
+          >
+            Test connection
+          </button>
+        </div>
+      </fieldset>
     </form>
   );
 }

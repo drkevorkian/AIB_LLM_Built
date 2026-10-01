@@ -63,6 +63,12 @@ export const workspaceSettingsSchema = z.strictObject({
   maxTurns: z.number().int().min(1).max(1000),
 });
 export type WorkspaceSettingsInput = z.infer<typeof workspaceSettingsSchema>;
+export const workspaceArchiveSchema = z.strictObject({ archived: z.boolean() });
+export type WorkspaceArchiveInput = z.infer<typeof workspaceArchiveSchema>;
+export const threadSettingsSchema = z.strictObject({
+  title: z.string().trim().min(1).max(100),
+});
+export type ThreadSettingsInput = z.infer<typeof threadSettingsSchema>;
 export const sendSchema = z.strictObject({
   clientId: z.string().uuid(),
   body: z.string().trim().min(1).max(12000),
@@ -253,6 +259,8 @@ export interface Room {
   title: string;
   objective: string;
   status: RoomStatus;
+  /** Archived workspaces retain their history and cannot schedule work. Legacy absence means open. */
+  archivedAt?: string | null;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -275,7 +283,7 @@ export interface Room {
 }
 export type RoomSummary = Pick<
   Room,
-  'id' | 'title' | 'objective' | 'status' | 'revision' | 'updatedAt'
+  'id' | 'title' | 'objective' | 'status' | 'archivedAt' | 'revision' | 'updatedAt'
 >;
 export interface SendResult {
   messageId: string;

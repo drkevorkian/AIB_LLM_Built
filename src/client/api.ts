@@ -68,6 +68,17 @@ export const api = {
     (
       await request(`/rooms/${id}/settings`, { method: 'PUT', body: JSON.stringify(input) })
     ).json() as Promise<Room>,
+  setWorkspaceArchived: async (id: string, archived: boolean) =>
+    (
+      await request(`/rooms/${id}/archive`, { method: 'PUT', body: JSON.stringify({ archived }) })
+    ).json() as Promise<Room>,
+  renameThread: async (id: string, threadId: string, title: string) =>
+    (
+      await request(`/rooms/${id}/threads/${threadId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ title }),
+      })
+    ).json() as Promise<Room>,
   deleteWorkspace: async (id: string) => {
     await request(`/rooms/${id}`, { method: 'DELETE' });
   },

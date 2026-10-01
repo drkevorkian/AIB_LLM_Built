@@ -250,8 +250,109 @@ p {
   flex: 1;
   min-width: 0;
 }
-.delete-item {
+.delete-item,
+.rename-item {
   flex-shrink: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.navigation-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+  min-width: 0;
+}
+.navigation-search label {
+  flex: 1;
+  min-width: 0;
+}
+.navigation-search input,
+.navigation-search select {
+  width: 100%;
+  min-width: 0;
+  background: var(--inset);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 11px;
+}
+.navigation-search select {
+  flex-basis: 100%;
+}
+.navigation-empty {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 8px 2px;
+}
+.thread-list .thread-label {
+  min-width: 0;
+  flex: 1;
+}
+.thread-list .search-snippet {
+  display: block;
+  margin-top: 4px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  color: var(--muted);
+  max-height: 2.8em;
+  overflow: hidden;
+  line-height: 1.4;
+}
+.composer-fields,
+.settings-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.archived-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+.archive-confirmation p + p {
+  margin-top: 14px;
+}
+.archive-confirmation .settings-actions {
+  margin-top: 20px;
+}
+.archive-workspace > div {
+  margin-bottom: 16px;
+}
+.archive-workspace p {
+  color: var(--muted);
+  line-height: 1.6;
+  margin-top: 8px;
+}
+@media (max-width: 700px) {
+  .thread-list.searching {
+    max-height: 76px;
+  }
+  .thread-list .thread-entry {
+    max-width: 250px;
+  }
+  .navigation-search {
+    margin-bottom: 8px;
+  }
 }
 .delete-item:hover:not(:disabled),
 .danger-button {
@@ -746,7 +847,7 @@ p {
   font-size: 9px;
   margin-left: auto;
 }
-.composer > textarea {
+.composer textarea {
   width: 100%;
   border-radius: 4px 4px 0 0;
   font-size: 12px;
@@ -1035,7 +1136,8 @@ progress::-moz-progress-bar {
   flex-direction: column;
   gap: 18px;
 }
-.room-form > label {
+.room-form > label,
+.room-form > .settings-fields > label {
   display: flex;
   flex-direction: column;
   gap: 9px;

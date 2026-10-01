@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   defaultAppSettings,
+  hasPendingWork,
   type Agent,
   type AppSettings,
   type Room,
@@ -17,6 +18,7 @@ export function SettingsPage({
   onDefaultsSaved,
   onWorkspaceSaved,
   onConfigure,
+  onArchiveWorkspace,
   onDeleteWorkspace,
   onBack,
 }: {
@@ -27,6 +29,7 @@ export function SettingsPage({
   onDefaultsSaved: (settings: AppSettings) => void;
   onWorkspaceSaved: (room: Room) => void;
   onConfigure: (agent: Agent) => void;
+  onArchiveWorkspace: () => void;
   onDeleteWorkspace: () => void;
   onBack: () => void;
 }) {
@@ -96,6 +99,26 @@ export function SettingsPage({
           <p className="muted">Participant settings appear when a workspace is selected.</p>
         )}
       </section>
+      {room && (
+        <section className="settings-section archive-workspace" aria-labelledby="archive-heading">
+          <div>
+            <h2 id="archive-heading">
+              {room.archivedAt ? 'Archived workspace' : 'Archive workspace'}
+            </h2>
+            <p>
+              {room.archivedAt
+                ? 'History stays available for reading, inspection, and export. Restore to change this workspace; it will remain paused until you resume.'
+                : 'Keep the workspace and its history while moving it out of the active list. Finish or stop pending work first.'}
+            </p>
+            {room.archivedAt && (
+              <p className="muted">Archived {new Date(room.archivedAt).toLocaleString()}</p>
+            )}
+          </div>
+          <button disabled={!room.archivedAt && hasPendingWork(room)} onClick={onArchiveWorkspace}>
+            {room.archivedAt ? 'Restore workspace' : 'Archive workspace'}
+          </button>
+        </section>
+      )}
       {room && (
         <section className="settings-section danger-zone" aria-labelledby="deletion-heading">
           <div>
@@ -272,10 +295,7 @@ function WorkspaceForm({ room, onSaved }: { room: Room; onSaved: (room: Room) =>
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
-  const pending =
-    room.jobs.some((j) => ['queued', 'running'].includes(j.status)) ||
-    room.relays.some((r) => ['running', 'blocked'].includes(r.status)) ||
-    room.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status));
+  const pending = hasPendingWork(room);
   useEffect(() => {
     if (!dirty) setValue({ title: room.title, objective: room.objective, maxTurns: room.maxTurns });
   }, [room.title, room.objective, room.maxTurns, dirty]);
@@ -312,53 +332,58 @@ function WorkspaceForm({ room, onSaved }: { room: Room; onSaved: (room: Room) =>
       {pending && (
         <p className="notice">Finish or stop pending work before saving workspace settings.</p>
       )}
-      <label>
-        Workspace name
-        <input
-          required
-          maxLength={100}
-          value={value.title}
-          onChange={(e) => update({ title: e.target.value })}
-        />
-      </label>
-      <label>
-        Shared objective
-        <textarea
-          aria-label="Shared objective"
-          rows={3}
-          maxLength={3000}
-          value={value.objective}
-          onChange={(e) => update({ objective: e.target.value })}
-        />
-      </label>
-      <label>
-        Workspace turn limit
-        <input
-          type="number"
-          required
-          min={Math.max(1, room.turnsUsed)}
-          max={1000}
-          value={value.maxTurns}
-          onChange={(e) => update({ maxTurns: Number(e.target.value) })}
-        />
-      </label>
-      <p className="muted">
-        {room.turnsUsed} turns already used. Deleting threads keeps that usage; changing the
-        objective affects new requests.
-      </p>
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
+      {room.archivedAt && (
+        <p className="notice">Restore this workspace before changing its settings.</p>
       )}
-      {result && (
-        <p className="connection-result" role="status">
-          {result}
+      <fieldset className="settings-fields" disabled={Boolean(room.archivedAt)}>
+        <label>
+          Workspace name
+          <input
+            required
+            maxLength={100}
+            value={value.title}
+            onChange={(e) => update({ title: e.target.value })}
+          />
+        </label>
+        <label>
+          Shared objective
+          <textarea
+            aria-label="Shared objective"
+            rows={3}
+            maxLength={3000}
+            value={value.objective}
+            onChange={(e) => update({ objective: e.target.value })}
+          />
+        </label>
+        <label>
+          Workspace turn limit
+          <input
+            type="number"
+            required
+            min={Math.max(1, room.turnsUsed)}
+            max={1000}
+            value={value.maxTurns}
+            onChange={(e) => update({ maxTurns: Number(e.target.value) })}
+          />
+        </label>
+        <p className="muted">
+          {room.turnsUsed} turns already used. Deleting threads keeps that usage; changing the
+          objective affects new requests.
         </p>
-      )}
-      <button className="primary" disabled={busy || pending || !dirty}>
-        {busy ? 'Saving…' : 'Save workspace'}
-      </button>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        {result && (
+          <p className="connection-result" role="status">
+            {result}
+          </p>
+        )}
+        <button className="primary" disabled={busy || pending || !dirty}>
+          {busy ? 'Saving…' : 'Save workspace'}
+        </button>
+      </fieldset>
     </form>
   );
 }

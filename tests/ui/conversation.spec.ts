@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect, type Page } from '@playwright/test';
+import { isolatedService } from './isolated-service.js';
 import {
   defaultAppSettings,
   type AgentAction,
   type AppSettings,
+  type Room,
+  type RoomSummary,
 } from '../../src/shared/contracts.js';
 
 test.beforeAll(async ({ playwright }) => {
@@ -36,6 +39,15 @@ async function createRoom(page: Page, participantCount = 3) {
   await expect(page.locator('.agent-card')).toHaveCount(participantCount);
   await expect(page.getByLabel('Message', { exact: true })).toBeVisible();
   return title;
+}
+
+async function workspaceRecord(page: Page, title: string) {
+  const { token } = (await (await page.request.get('/api/session')).json()) as { token: string };
+  const headers = { 'X-AIB-Token': token };
+  const rooms = (await (await page.request.get('/api/rooms', { headers })).json()) as RoomSummary[];
+  const id = rooms.find((room) => room.title === title)!.id;
+  const room = (await (await page.request.get('/api/rooms/' + id, { headers })).json()) as Room;
+  return { room, headers };
 }
 
 test('parallel answers, synthesis, directed reply, frozen context, export, and reload', async ({
@@ -783,7 +795,9 @@ test('deleting the final workspace leaves an empty app across a service restart 
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByLabel('Default workspace turn limit').fill('23');
     await page.getByRole('button', { name: 'Save defaults', exact: true }).click();
-    await expect(page.getByRole('status')).toContainText('Defaults saved.');
+    await expect(
+      page.getByRole('main', { name: 'Settings', exact: true }).getByRole('status'),
+    ).toContainText('Defaults saved.');
     await page.getByRole('button', { name: 'Back to conversation' }).click();
     await page.getByRole('button', { name: 'Create workspace', exact: true }).click();
     await expect(page.getByLabel('Turn limit', { exact: true })).toHaveValue('23');
@@ -1038,4 +1052,339 @@ test('duplicate participant names have distinct selectable labels and route only
   };
   expect(room.jobs.map((job) => job.agentId)).toEqual([room.agents[1]!.id]);
   expect(room.turnsUsed).toBe(1);
+});
+
+test('workspace search matches titles and objectives, separates archives, and keeps the selected draft', async ({
+  page,
+}) => {
+  const firstTitle = await createRoom(page, 1);
+  const first = await workspaceRecord(page, firstTitle);
+  const group = 'Search ' + randomUUID().slice(0, 8);
+  const firstName = group + ' alpha';
+  expect(
+    (
+      await page.request.put('/api/rooms/' + first.room.id + '/settings', {
+        headers: first.headers,
+        data: { title: firstName, objective: 'Laser COOLANT [a+b]', maxTurns: 100 },
+      })
+    ).ok(),
+  ).toBe(true);
+  const secondTitle = await createRoom(page, 1);
+  const second = await workspaceRecord(page, secondTitle);
+  const secondName = group + ' beta';
+  expect(
+    (
+      await page.request.put('/api/rooms/' + second.room.id + '/settings', {
+        headers: second.headers,
+        data: { title: secondName, objective: 'Different objective', maxTurns: 100 },
+      })
+    ).ok(),
+  ).toBe(true);
+  await expect(
+    page.getByRole('heading', { name: secondName, exact: true, level: 1 }),
+  ).toBeVisible();
+  await page.getByLabel('Message', { exact: true }).fill('Keep this workspace search draft');
+  await page.getByLabel('Search workspaces').fill(group.toUpperCase());
+  await expect(page.locator('.room-item')).toHaveCount(2);
+  await page.getByLabel('Search workspaces').fill(' coolant ');
+  await expect(page.locator('.room-item')).toHaveCount(1);
+  await expect(page.locator('.room-item')).toContainText(firstName);
+  await expect(
+    page.getByRole('heading', { name: secondName, exact: true, level: 1 }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+    'Keep this workspace search draft',
+  );
+  await page.getByLabel('Search workspaces').fill('[a+b]');
+  await expect(page.locator('.room-item')).toHaveCount(1);
+  await page.getByLabel('Search workspaces').fill('.*');
+  await expect(page.getByText('No matching workspaces.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear workspace search' }).click();
+  await page.getByLabel('Search workspaces').fill(group);
+  expect(
+    (
+      await page.request.put('/api/rooms/' + first.room.id + '/archive', {
+        headers: first.headers,
+        data: { archived: true },
+      })
+    ).ok(),
+  ).toBe(true);
+  await expect(page.locator('.room-item')).toHaveCount(1);
+  await expect(page.locator('.room-item')).toContainText(secondName);
+  await page.getByLabel('Workspace view').selectOption('archived');
+  await expect(page.locator('.room-item')).toHaveCount(1);
+  await expect(page.locator('.room-item')).toContainText(firstName);
+  await page.getByLabel('Workspace view').selectOption('all');
+  await expect(page.locator('.room-item')).toHaveCount(2);
+  await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+    'Keep this workspace search draft',
+  );
+});
+
+test('thread names and message bodies are searchable with safe snippets, preserved drafts, and deletion reconciliation', async ({
+  page,
+}) => {
+  const title = await createRoom(page, 1);
+  const needle = 'Needle' + randomUUID().slice(0, 8);
+  await page.getByLabel('Message type').selectOption('update');
+  await page
+    .getByLabel('Message', { exact: true })
+    .fill('Original thread ' + 'x'.repeat(200) + ' ' + needle + ' payload');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.thread-entry')).toHaveCount(1);
+  await page.getByRole('button', { name: /^All messages/ }).click();
+  await page
+    .getByLabel('Message', { exact: true })
+    .fill('Other thread ' + 'y'.repeat(150) + ' [a+b] <img src=x onerror="window.__searchXss=1">');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.thread-entry')).toHaveCount(2);
+  const { room, headers } = await workspaceRecord(page, title);
+  const originalName = room.threads[0]!.title;
+  await page
+    .locator('.thread-entry')
+    .filter({ hasText: originalName })
+    .locator('button')
+    .first()
+    .click();
+  await page.getByLabel('Message', { exact: true }).fill('Unsent rename draft');
+  await page.getByRole('button', { name: 'Rename thread ' + originalName, exact: true }).click();
+  await page.getByLabel('Thread name').fill('Cancelled name');
+  await page
+    .getByRole('dialog', { name: 'Rename thread', exact: true })
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
+  expect((await workspaceRecord(page, title)).room.threads[0]!.title).toBe(originalName);
+  await page.getByRole('button', { name: 'Rename thread ' + originalName, exact: true }).click();
+  const renamed = 'Evidence review ' + needle;
+  await page.getByLabel('Thread name').fill(renamed);
+  await page.getByRole('button', { name: 'Save thread name', exact: true }).click();
+  await expect(page.getByRole('heading', { name: renamed, exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByLabel('Message', { exact: true })).toHaveValue('Unsent rename draft');
+  await page.getByLabel('Search threads').fill(needle.toUpperCase());
+  await expect(page.locator('.thread-entry')).toHaveCount(1);
+  await expect(page.locator('.search-snippet')).toContainText(needle);
+  await page.getByLabel('Search threads').fill('[a+b]');
+  await expect(page.locator('.thread-entry')).toHaveCount(1);
+  await expect(page.locator('.search-snippet')).toContainText('<img');
+  expect(
+    await page.evaluate(() => (window as Window & { __searchXss?: number }).__searchXss),
+  ).toBeUndefined();
+  await expect(page.locator('.search-snippet img')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: renamed, exact: true, level: 1 })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/search-mobile.png', fullPage: true });
+  expect(
+    (
+      await page.request.delete('/api/rooms/' + room.id + '/threads/' + room.threads[1]!.id, {
+        headers,
+      })
+    ).ok(),
+  ).toBe(true);
+  await expect(page.getByText('No matching threads.', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Message', { exact: true })).toHaveValue('Unsent rename draft');
+  await page.getByRole('button', { name: 'Clear thread search' }).click();
+  await expect(page.locator('.thread-entry')).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator('.thread-label')).toContainText(renamed);
+});
+
+test('archive confirmation retains history and drafts, disables work, supports export and reload, and restores paused', async ({
+  page,
+}) => {
+  const title = await createRoom(page);
+  await page.getByLabel('AI A synthesizes').uncheck();
+  await page.getByLabel('AI B', { exact: true }).uncheck();
+  await page.getByLabel('AI C', { exact: true }).uncheck();
+  await page.getByLabel('AI A', { exact: true }).check();
+  await page
+    .getByLabel('Message', { exact: true })
+    .fill('Retain this answer through archive and restore');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const answer = page.getByRole('article', { name: 'AI A answer', exact: true });
+  await expect(answer.getByRole('button', { name: 'Reply to AI A', exact: true })).toBeEnabled();
+  await page.getByLabel('Message', { exact: true }).fill('Archive draft stays here');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Archive workspace', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Archive workspace?', exact: true });
+  await expect(confirm).toContainText(title);
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect((await workspaceRecord(page, title)).room.archivedAt).toBeNull();
+  await page.getByRole('button', { name: 'Archive workspace', exact: true }).click();
+  await confirm.getByRole('button', { name: 'Archive workspace', exact: true }).click();
+  await expect(confirm).not.toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Archived workspace', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Workspace view')).toHaveValue('archived');
+  await expect(page.getByLabel('Workspace name')).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Add participant', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Deactivate AI B', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Configure AI A', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Configure AI A', exact: true });
+  await expect(settings.getByRole('button', { name: 'Save settings', exact: true })).toBeDisabled();
+  await expect(
+    settings.getByRole('button', { name: 'Test connection', exact: true }),
+  ).toBeDisabled();
+  await settings.getByRole('button', { name: 'Close dialog' }).click();
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+  await expect(page.getByLabel('Message', { exact: true })).toHaveValue('Archive draft stays here');
+  await expect(page.getByLabel('Message', { exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeDisabled();
+  await expect(answer.getByRole('button', { name: 'Reply to AI A', exact: true })).toBeDisabled();
+  await answer.getByRole('button', { name: 'Inspect context', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Retain this answer');
+  await page.getByRole('button', { name: 'Close dialog' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export conversation', exact: true }).click();
+  const path = await (await download).path();
+  const { readFile } = await import('node:fs/promises');
+  const transcript = await readFile(path!, 'utf8');
+  expect(transcript).toContain('Workspace archived:');
+  expect(transcript).toContain('Retain this answer');
+  expect((await workspaceRecord(page, title)).room.turnsUsed).toBe(1);
+  await page.screenshot({ path: 'test-results/archived-workspace.png', fullPage: true });
+  await page.reload();
+  await page.getByLabel('Workspace view').selectOption('archived');
+  await page.getByLabel('Search workspaces').fill(title);
+  await page.locator('.room-item').filter({ hasText: title }).click();
+  await expect(page.getByLabel('Message', { exact: true })).toBeDisabled();
+  await expect(answer).toBeVisible();
+  await page.getByRole('button', { name: 'Restore workspace', exact: true }).click();
+  const restore = page.getByRole('dialog', { name: 'Restore workspace?', exact: true });
+  await restore.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect((await workspaceRecord(page, title)).room.archivedAt).toBeTruthy();
+  await page.getByRole('button', { name: 'Restore workspace', exact: true }).click();
+  await restore.getByRole('button', { name: 'Restore workspace', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeDisabled();
+  await expect(page.getByLabel('Message', { exact: true })).toBeEnabled();
+  expect((await workspaceRecord(page, title)).room.status).toBe('paused');
+  expect((await workspaceRecord(page, title)).room.turnsUsed).toBe(1);
+});
+
+test('archiving in another view respects pending work and preserves a read-only draft until explicit restore', async ({
+  page,
+}) => {
+  const title = await createRoom(page);
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
+  await page.getByLabel('Message', { exact: true }).fill('Queue this pending request');
+  await page.getByRole('button', { name: 'Queue', exact: true }).click();
+  await expect(page.locator('.thread-entry')).toHaveCount(1);
+  await page.getByLabel('Message', { exact: true }).fill('Cross-view archive draft');
+  const second = await page.context().newPage();
+  try {
+    await second.goto('/');
+    await expect(second.getByRole('heading', { level: 1 })).not.toContainText('Opening room');
+    await second.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(
+      second.getByRole('button', { name: 'Archive workspace', exact: true }),
+    ).toBeDisabled();
+    await second.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+    await second.getByRole('button', { name: 'Stop', exact: true }).click();
+    await second.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(
+      second.getByRole('button', { name: 'Archive workspace', exact: true }),
+    ).toBeEnabled();
+    await second.getByRole('button', { name: 'Archive workspace', exact: true }).click();
+    await second
+      .getByRole('dialog', { name: 'Archive workspace?', exact: true })
+      .getByRole('button', { name: 'Archive workspace', exact: true })
+      .click();
+    await expect(page.locator('.archived-notice')).toBeVisible();
+    await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+      'Cross-view archive draft',
+    );
+    await expect(page.getByLabel('Message', { exact: true })).toBeDisabled();
+    expect((await workspaceRecord(page, title)).room.turnsUsed).toBe(0);
+    await page.getByLabel('Search threads').fill('pending');
+    await expect(page.locator('.thread-entry')).toHaveCount(1);
+    await second.getByRole('button', { name: 'Restore workspace', exact: true }).click();
+    await second
+      .getByRole('dialog', { name: 'Restore workspace?', exact: true })
+      .getByRole('button', { name: 'Restore workspace', exact: true })
+      .click();
+    await expect(page.locator('.archived-notice')).not.toBeVisible();
+    await expect(page.getByLabel('Message', { exact: true })).toBeEnabled();
+    await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+      'Cross-view archive draft',
+    );
+    await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
+    const record = (await workspaceRecord(page, title)).room;
+    expect(record.jobs.every((job) => job.status === 'cancelled')).toBe(true);
+    expect(record.turnsUsed).toBe(0);
+  } finally {
+    await second.close();
+  }
+});
+
+test('a service with only archived workspaces reopens its retained history after restart without reseeding or invoking', async ({
+  page,
+}) => {
+  const service = await isolatedService(page);
+  try {
+    await service.ready();
+    await page.goto(service.base);
+    await expect(page.getByLabel('Message', { exact: true })).toBeVisible();
+    await page.getByLabel('Message type').selectOption('update');
+    await page.getByLabel('Message', { exact: true }).fill('Restart archive evidence');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.locator('.thread-entry')).toHaveCount(1);
+    const { token } = (await (await page.request.get(service.base + '/api/session')).json()) as {
+      token: string;
+    };
+    const headers = { 'X-AIB-Token': token };
+    const rooms = (await (
+      await page.request.get(service.base + '/api/rooms', { headers })
+    ).json()) as RoomSummary[];
+    expect(rooms).toHaveLength(1);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Archive workspace', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Archive workspace?', exact: true })
+      .getByRole('button', { name: 'Archive workspace', exact: true })
+      .click();
+    await expect(
+      page.getByRole('heading', { name: 'Archived workspace', exact: true }),
+    ).toBeVisible();
+    await page.goto('about:blank');
+    await service.restart();
+    await page.goto(service.base);
+    await expect(page.getByLabel('Workspace view')).toHaveValue('archived');
+    await expect(page.locator('.room-item')).toHaveCount(1);
+    await expect(page.locator('.archived-notice')).toBeVisible();
+    await expect(page.getByRole('article', { name: 'You update', exact: true })).toContainText(
+      'Restart archive evidence',
+    );
+    await expect(page.getByLabel('Message', { exact: true })).toBeDisabled();
+    const fresh = (await (await page.request.get(service.base + '/api/session')).json()) as {
+      token: string;
+    };
+    const recovered = (await (
+      await page.request.get(service.base + '/api/rooms', {
+        headers: { 'X-AIB-Token': fresh.token },
+      })
+    ).json()) as RoomSummary[];
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]!.id).toBe(rooms[0]!.id);
+    await page.getByRole('button', { name: 'Restore workspace', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Restore workspace?', exact: true })
+      .getByRole('button', { name: 'Restore workspace', exact: true })
+      .click();
+    await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
+    await expect(page.getByLabel('Workspace view')).toHaveValue('active');
+    const record = (await (
+      await page.request.get(service.base + '/api/rooms/' + rooms[0]!.id, {
+        headers: { 'X-AIB-Token': fresh.token },
+      })
+    ).json()) as Room;
+    expect(record.turnsUsed).toBe(0);
+    expect(record.jobs).toHaveLength(0);
+    expect(record.status).toBe('paused');
+  } finally {
+    await page.goto('about:blank');
+    await service.close();
+  }
 });

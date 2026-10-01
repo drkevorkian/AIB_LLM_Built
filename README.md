@@ -2,7 +2,7 @@
 
 A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** v0.5.0 supports workspaces with 1–8 independent participants, roster management in Settings, and persistent participant configuration history. Node.js 26.10 and Node 24 are supported. A human-selected coordinator can ask active peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. The application also includes saved conversation defaults, workspace editing, and confirmed workspace/thread deletion. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and browser flows are tested with fixtures; credentialed provider accounts and installed local models have not been verified in this workspace. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
+**Status:** v0.6.0 adds workspace search, thread-content search and renaming, and persistent workspace archives with explicit restoration. Workspaces support 1–8 independent participants, roster management in Settings, and persistent participant configuration history. Node.js 26.10 and Node 24 are supported. A human-selected coordinator can ask active peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. The application also includes saved conversation defaults, workspace editing, and confirmed workspace/thread deletion. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and browser flows are tested with fixtures; credentialed provider accounts and installed local models have not been verified in this workspace. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
 
 ## Overview
 
@@ -25,8 +25,11 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
 
-## Available in v0.5.0
+## Available in v0.6.0
 
+- Search workspace names/objectives and the selected workspace's thread names/messages with literal, case-insensitive matching and safe text previews.
+- Rename threads without changing their identities, messages, reply links, frozen context, or pending work.
+- Archive and restore workspaces in Settings while retaining full history and consumed usage; archived workspaces cannot invoke models or change conversation data.
 - Create workspaces with 1–8 participants; add, deactivate, and reactivate participants in Settings while retaining their identities and history.
 - Record every new participant configuration revision, including unused edits, and preserve the original author names and provider/model bindings on historical answers.
 - Configurable OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible text-generation connections, alongside clearly labeled simulation.
@@ -44,7 +47,7 @@ You can ask two agents for independent opinions, wait for both, send their answe
 
 New rooms start in simulation so launch does not invoke or bill a provider. Configure participants explicitly to use real models. Missing credentials or failed live requests produce visible failures; they never fall back to simulation.
 
-See [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
+See [v0.6.0 release notes](docs/releases/0.6.0.md), [workspace organization contract](docs/architecture/0007-workspace-organization.md), [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
 
 ![Agent discussion through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
 
@@ -119,6 +122,10 @@ Click **Settings** in the header to open the dedicated page; `http://127.0.0.1:4
 - **Preferences:** choose a theme and save defaults for new workspace turn limits, response deadlines, all/any/quorum collection, synthesis, discussion peer rounds, and discussion turn allowances. Theme stays in this browser; conversation defaults are stored in SQLite and shared by views of the same service. Existing workspaces, active work, and open composers keep their values. Visiting Settings preserves the open composer draft.
 - **Workspace:** edit the selected workspace's name, shared objective, and turn limit. Finish or stop pending work first. The limit cannot be below turns already used. Historical invocation objectives and participant bindings remain recorded; new requests use the revised objective.
 - **Participants & connections:** add a participant, deactivate/reactivate an existing identity, inspect configuration history, or configure its role, provider/model, output limit, and timeout. New participants start in simulation; connection tests require an active participant. Keep at least one active participant. The eight-identity limit includes inactive participants, whose messages, settings, usage, and history remain available. Names may repeat; the UI adds a roster number to distinguish duplicate names. API credentials remain in the service environment/`.env`; Settings displays their availability without receiving key values.
+- **Search:** use **Search workspaces** to match names or objectives and choose **Active**, **Archived**, or **All workspaces**. **Search threads** matches names and retained message text in the selected workspace, including streamed text as it arrives. Matching previews are plain text. Search keeps the selected conversation and open draft; choosing a result opens the full thread. Queries are local to the open view, use literal case-insensitive matching, and clear on reload. Thread search resets when changing workspaces.
+- **Rename thread:** click its pencil button, enter a name of 1–100 characters, then save or cancel. Naming can happen during active work because it changes only the thread label. Other views and exports use the updated name; routing, message IDs, reply links, invocation context, and usage stay unchanged.
+- **Archive workspace:** use Settings and confirm the named workspace. Finish or stop queued/running work and unfinished workflows first; connection probes must finish. Archiving pauses the workspace and retains its participants, threads, messages, attempts, snapshots, workflows, history, and consumed usage. Archived conversations support reading, searching, inspection, export, restoration, and whole-workspace deletion. Editing, sending, retrying, controls, thread deletion/renaming, roster changes, and connection tests require restoration. An already open draft stays in place with its controls disabled.
+- **Restore workspace:** use Settings or the archived-conversation notice and confirm. Restoration returns it to the active list and keeps it paused; **Resume** is explicit. Restoration does not replay failed/cancelled work or refund used turns. If only archived workspaces remain, the app opens an archived workspace after restart without creating another welcome room.
 - **Delete workspace:** use the trash button beside its sidebar entry or the action at the end of Settings, then confirm the named workspace. This removes its participants, threads, messages, requests, attempts, snapshots, workflows, and local activity. Active generations and connection probes are aborted. Other workspaces remain usable. Deleting the final workspace leaves an empty app, including after restart; **Create workspace** starts a new one.
 - **Delete thread:** use its sidebar trash button and confirm. Its messages, attempts, response sets, relays, and discussions are removed. Stored copies of its messages are also removed from surviving context snapshots. Pending work using that context is cancelled, unused reservations are released, and consumed turns remain counted. Surviving completed answers remain in their threads; a redaction notice identifies historical context changes. Attempts with redacted context cannot be retried; ask a new question instead.
 
@@ -167,7 +174,7 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-The v0.5.0 suite includes 116 engine/service/provider-protocol tests and 17 Chromium UI tests, verified under both Node 26.10.0 and 24.19.0. Coverage includes variable rosters, activation, configuration history, frozen retry bindings, independent duplicate names, cross-view drafts, and persistence/restart. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
+The v0.6.0 suite includes 130 engine/service/provider-protocol tests and 22 Chromium UI tests, verified under both Node 26.10.0 and 24.19.0. Coverage includes archives and explicit restoration, read-only archive commands, scoped renaming during active work, safe search previews, archive-only service restart, variable rosters, activation, configuration history, frozen retry bindings, independent duplicate names, cross-view drafts, and persistence/restart. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
 
 To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. Use `[simulate:follow-up]` in an agent discussion to demonstrate a second round targeting the first peer’s exact answer. These markers belong to simulation and have no special behavior in live providers.
 
@@ -175,13 +182,15 @@ To exercise failure handling in simulation, include `[simulate:fail]`, `[simulat
 
 The rest of this README specifies the full target design. The checked TODO items at the end record completed work; unchecked items remain planned.
 
-The v0.5.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each workspace has 1–8 participant identities, including inactive identities; at least one stays active. Their names, roles, providers, and models are editable. The service runs at most four generations concurrently and one per participant.
+The v0.6.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each workspace has 1–8 participant identities, including inactive identities; at least one stays active. Their names, roles, providers, and models are editable. The service runs at most four generations concurrently and one per participant.
 
 All messages are room-visible. All/any/quorum are the implemented collection policies. Timeout cancels unfinished work for the affected request and pauses the room; deadlines continue while paused. Each provider also has a connection timeout. Reported usage is stored per attempt; monetary cost estimates and enforced token/cost budgets are not implemented.
 
 Signed-in browser-session transport, rosters above eight identities, participant removal, membership changes during pending workflows, unrestricted agent send types, nested peer delegation, assigned cross-review rounds, conference speaking queues, attachments, private threads, summaries, imports, backup tools, and installers remain planned. Remote acceptance/reconciliation is incomplete. Provider/network failures are never automatically retried. A confirmed completed but invalid coordinator action can receive one new correction invocation within the reserved allowance; this may incur charges. Explicit retries may also incur another charge if the first request reached the provider. Stop aborts the local request, but a provider may continue processing or billing a request it already accepted.
 
 Initial limits are 12,000 characters per command, 20,000 per provider answer, and 64,000 per context snapshot. Oversized contexts are rejected explicitly; history is not silently truncated. The persistence layer is a transactional room-document store for a single service, with a separate SQLite writer lease. Multi-worker scheduling and large-history pagination are planned.
+
+Search uses workspace metadata and the selected workspace's retained room-visible messages already loaded by the client. Advanced query syntax, global message search across workspaces, ranking/indexing, bulk organization, thread archive, and message-body editing remain planned. Archived workspaces are retained data, not backups or a privacy boundary.
 
 ## Conversation model
 
@@ -416,7 +425,7 @@ Implement domain contracts and a deterministic fake provider before live integra
 
 Contributions should explain the behavior changed, its reason, relevant failure cases, and validation. New routing or recovery behavior requires tests of its observable guarantees. No feature is complete solely because its happy path works once.
 
-TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. v0.5.0 adds variable participant rosters, activation, and configuration history. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
+TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. v0.5.0 adds variable participant rosters, activation, and configuration history. v0.6.0 adds workspace/thread search, thread renaming, and workspace archive/restore. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
 
 ## Delivery milestones
 
@@ -431,7 +440,7 @@ TypeScript, React, Node 24, SQLite, and local browser operation were selected fo
 
 ## Complete implementation TODO checklist
 
-This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.5.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
+This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.6.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
 
 ### 1. Product scope and decisions
 
@@ -594,7 +603,7 @@ This is the complete implementation checklist for the scope described above. Che
 
 ### 12. Graphical interface
 
-- [ ] Implement room creation, selection, search, archive, and deletion.
+- [x] Implement room creation, selection, search, archive, and deletion.
 - [x] Implement the three-column room/thread, conversation, and agent-details layout.
 - [ ] Add panel resizing and responsive collapse behavior.
 - [x] Add agent configuration, role editing, activation, and model selection.
@@ -808,7 +817,7 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Migrate v1 databases additively to v2 with existing room data retained and preferences stored separately.
 - [x] Verify settings, cancellation, deletion scope, source redaction, late events, replay prevention, persistence, and browser management flows.
 - [ ] Add separate workspace/group hierarchy and membership if multiple rooms need to share a workspace.
-- [ ] Add archive/restore, bulk deletion, thread renaming, and searchable workspace/thread management.
+- [ ] Add archive/restore, bulk deletion, thread renaming, and searchable workspace/thread management (archive/restore, renaming, and search complete in v0.6.0; bulk deletion remains).
 - [ ] Add encrypted backups, restoration, retention scheduling, and a documented disk-erasure policy.
 - [ ] Add OS-backed credential management and graphical credential editing (also tracked in the live-provider checklist).
 
@@ -841,3 +850,24 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Verify single-participant, larger-roster, cross-view, narrow-layout, restart, and active-routing flows under Node 24 and 26.
 - [ ] Support rosters above eight identities with explicit capacity, context-size, and interface policies.
 - [ ] Add participant removal with documented historical attribution, workflow, and retention behavior.
+
+### 26. v0.6.0 workspace organization
+
+- [x] Persist additive workspace archive metadata while keeping existing room documents and database versions readable.
+- [x] Add named archive and restore confirmations with cancellation in Settings and archived conversations.
+- [x] Require queued/running work, unfinished or blocked workflows, and workspace connection probes to finish or stop before archiving.
+- [x] Preserve all retained conversation records, participant history, and consumed turns while archived.
+- [x] Reject archived edits, sends, retries, control commands, roster changes, thread deletion/renaming, and connection tests before mutation or invocation.
+- [x] Keep archived history available for reading, searching, context inspection, export, and confirmed whole-workspace deletion.
+- [x] Restore into a paused state without replaying cancelled/failed work or starting a provider request.
+- [x] Defensively prevent dispatch in archived records even if a stale status says running.
+- [x] Retain archives across disk and production-service restart without reseeding the welcome room.
+- [x] Search workspace names/objectives with active, archived, and all views and clear/no-match controls.
+- [x] Search thread names and retained message text within the selected workspace using literal case-insensitive matching and bounded plain-text previews.
+- [x] Preserve selected conversations and draft text while searching and reconciling archives from other views.
+- [x] Rename threads with strict workspace scope and bounded names, including during active work, without changing IDs, messages, reply links, context, obligations, or usage.
+- [x] Include current thread names and archive metadata in Markdown exports while retaining stable IDs and original author bindings.
+- [x] Verify archive/restore, retry bindings, search scope, deletion reconciliation, safe previews, narrow layouts, cross-view drafts, and restart under Node 24 and 26.
+- [ ] Add bulk archive/restore/deletion with explicit scope, previews, and cancellation.
+- [ ] Add optional global message search across workspaces with visibility checks, pagination, and explicit result locations.
+- [ ] Add thread archive/restore, ordering, saved views, and richer query syntax after their behavior is specified.

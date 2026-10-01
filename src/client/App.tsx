@@ -14,16 +14,20 @@ import type {
 import { api, ApiError, watch } from './api.js';
 import { AgentSettings } from './AgentSettings.js';
 import { SettingsPage } from './SettingsPage.js';
+import { searchWorkspaces, searchThreads, type WorkspaceView } from './search.js';
 import {
   agentAtSnapshot,
   agentLabel,
   isAgentActive,
   maxParticipants,
+  hasPendingWork,
 } from '../shared/contracts.js';
 
 type DeleteTarget =
   | { kind: 'workspace'; id: string; title: string }
   | { kind: 'thread'; id: string; roomId: string; title: string };
+type ArchiveTarget = { id: string; title: string; archived: boolean };
+type RenameTarget = { roomId: string; id: string; title: string };
 
 function Glyph({
   kind,
@@ -40,6 +44,7 @@ function Glyph({
     | 'close'
     | 'branch'
     | 'inspect'
+    | 'edit'
     | 'trash';
   size?: number;
 }) {
@@ -54,6 +59,7 @@ function Glyph({
     close: 'm6 6 12 12 M6 18 18 6',
     branch: 'M7 3v18 M7 12h6a4 4 0 0 0 4-4V3',
     inspect: 'M4 6h16 M4 12h16 M4 18h10',
+    edit: 'm15 4 5 5 M4 20l5-1L20 8l-4-4L5 15l-1 5Z',
     trash: 'M4 6h16 M9 6V3h6v3 M6 6l1 15h10l1-15 M10 10v7 M14 10v7',
   };
   return (
@@ -91,6 +97,11 @@ export function App() {
   const [defaults, setDefaults] = useState<AppSettings | null>(null);
   const [settingsPage, setSettingsPage] = useState(() => location.hash === '#settings');
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<ArchiveTarget | null>(null);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [workspaceSearch, setWorkspaceSearch] = useState('');
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('active');
+  const [threadSearch, setThreadSearch] = useState('');
   const [roomId, setRoomId] = useState<string | null>(null);
   const [loadedRoom, setRoom] = useState<Room | null>(null);
   const room = loadedRoom?.id === roomId ? loadedRoom : null;
@@ -136,9 +147,13 @@ export function App() {
       .then((list) => {
         if (abort.signal.aborted) return;
         setRooms(list);
+        if (!listLoaded && list.length && list.every((r) => r.archivedAt))
+          setWorkspaceView('archived');
         setListLoaded(true);
         setRoomId((current) =>
-          current && list.some((r) => r.id === current) ? current : (list[0]?.id ?? null),
+          current && list.some((r) => r.id === current)
+            ? current
+            : (list.find((r) => !r.archivedAt)?.id ?? list[0]?.id ?? null),
         );
       })
       .catch((e: unknown) => {
@@ -164,6 +179,8 @@ export function App() {
     setReply(null);
     setInspect(null);
     setSettings(null);
+    setRenameTarget(null);
+    setThreadSearch('');
     follow.current = true;
   }, [roomId]);
   useEffect(() => {
@@ -199,6 +216,11 @@ export function App() {
     )
       setReply(null);
     if (inspect && !room.messages.some((m) => m.id === inspect.id)) setInspect(null);
+    if (
+      renameTarget &&
+      (renameTarget.roomId !== room.id || !room.threads.some((t) => t.id === renameTarget.id))
+    )
+      setRenameTarget(null);
   }, [room, threadId, reply, inspect]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -248,6 +270,20 @@ export function App() {
     follow.current = true;
     setFollowLatest(true);
   }
+  function workspaceSaved(next: Room) {
+    setRoom((current) =>
+      current?.id === next.id && current.revision > next.revision ? current : next,
+    );
+    setTick((v) => v + 1);
+  }
+  async function archive(target: ArchiveTarget) {
+    const next = await api.setWorkspaceArchived(target.id, target.archived);
+    if (roomId === target.id) workspaceSaved(next);
+    else setTick((v) => v + 1);
+    setWorkspaceView(target.archived ? 'archived' : 'active');
+    setWorkspaceSearch('');
+    setArchiveTarget(null);
+  }
   async function remove(target: DeleteTarget) {
     if (target.kind === 'workspace') {
       await api.deleteWorkspace(target.id);
@@ -286,6 +322,8 @@ export function App() {
     : 0;
   const snapshots =
     inspect && room ? room.snapshots.find((s) => s.id === inspect.snapshotId) : null;
+  const visibleRooms = searchWorkspaces(rooms, workspaceSearch, workspaceView);
+  const visibleThreads = room ? searchThreads(room, threadSearch) : [];
 
   return (
     <div className="application">
@@ -303,7 +341,7 @@ export function App() {
           {liveCount
             ? `${liveCount} LIVE AGENT${liveCount === 1 ? '' : 'S'} CONFIGURED`
             : 'SIMULATION'}
-          <span className="version">v0.5.0</span>
+          <span className="version">v0.6.0</span>
         </div>
         <div className="header-actions">
           <span className={`connection ${connected ? 'online' : ''}`}>
@@ -347,8 +385,39 @@ export function App() {
               <Glyph kind="plus" />
             </button>
           </div>
+          <div className="navigation-search">
+            <label>
+              <span className="sr-only">Search workspaces</span>
+              <input
+                type="search"
+                aria-label="Search workspaces"
+                placeholder="Search name or objective"
+                maxLength={200}
+                value={workspaceSearch}
+                onChange={(e) => setWorkspaceSearch(e.target.value)}
+              />
+            </label>
+            {workspaceSearch && (
+              <button
+                className="quiet compact"
+                aria-label="Clear workspace search"
+                onClick={() => setWorkspaceSearch('')}
+              >
+                Clear
+              </button>
+            )}
+            <select
+              aria-label="Workspace view"
+              value={workspaceView}
+              onChange={(e) => setWorkspaceView(e.target.value as WorkspaceView)}
+            >
+              <option value="active">Active workspaces</option>
+              <option value="archived">Archived workspaces</option>
+              <option value="all">All workspaces</option>
+            </select>
+          </div>
           <nav className="room-list" aria-label="Rooms">
-            {rooms.map((r) => (
+            {visibleRooms.map((r) => (
               <div className="workspace-entry" key={r.id}>
                 <button
                   className={`room-item ${r.id === roomId ? 'selected' : ''}`}
@@ -357,7 +426,13 @@ export function App() {
                   <Glyph kind="chat" />
                   <span>
                     {r.title}
-                    <small>{r.status === 'running' ? 'Open conversation' : r.status}</small>
+                    <small>
+                      {r.archivedAt
+                        ? 'Archived'
+                        : r.status === 'running'
+                          ? 'Open conversation'
+                          : r.status}
+                    </small>
                   </span>
                 </button>
                 <button
@@ -369,6 +444,13 @@ export function App() {
                 </button>
               </div>
             ))}
+            {listLoaded && !visibleRooms.length && (
+              <p className="navigation-empty" role="status">
+                {workspaceSearch.trim()
+                  ? 'No matching workspaces.'
+                  : `No ${workspaceView === 'archived' ? 'archived ' : workspaceView === 'active' ? 'active ' : ''}workspaces.`}
+              </p>
+            )}
           </nav>
           {room && (
             <>
@@ -378,27 +460,67 @@ export function App() {
               </div>
               <div className="section-heading">
                 <h2>THREADS</h2>
-                <span>{room.threads.length}</span>
+                <span>
+                  {threadSearch.trim() ? `${visibleThreads.length} / ` : ''}
+                  {room.threads.length}
+                </span>
               </div>
-              <nav className="thread-list" aria-label="Threads">
+              <div className="navigation-search thread-search">
+                <label>
+                  <span className="sr-only">Search threads</span>
+                  <input
+                    type="search"
+                    aria-label="Search threads"
+                    placeholder="Search names or messages"
+                    maxLength={200}
+                    value={threadSearch}
+                    onChange={(e) => setThreadSearch(e.target.value)}
+                  />
+                </label>
+                {threadSearch && (
+                  <button
+                    className="quiet compact"
+                    aria-label="Clear thread search"
+                    onClick={() => setThreadSearch('')}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <nav
+                className={`thread-list ${threadSearch.trim() ? 'searching' : ''}`}
+                aria-label="Threads"
+              >
                 <button className={!threadId ? 'selected' : ''} onClick={() => chooseThread(null)}>
                   <Glyph kind="branch" />
                   <span>All messages</span>
                   <small>{room.messages.length}</small>
                 </button>
-                {room.threads.map((t) => (
+                {visibleThreads.map(({ thread: t, snippet }) => (
                   <div className="thread-entry" key={t.id}>
                     <button
                       className={threadId === t.id ? 'selected' : ''}
                       onClick={() => chooseThread(t.id)}
                     >
                       <span className="thread-mark">#</span>
-                      <span>{t.title}</span>
+                      <span className="thread-label">
+                        {t.title}
+                        {snippet && <small className="search-snippet">{snippet}</small>}
+                      </span>
                       <small>{room.messages.filter((m) => m.threadId === t.id).length}</small>
+                    </button>
+                    <button
+                      className="icon-button rename-item"
+                      aria-label={`Rename thread ${t.title}`}
+                      disabled={Boolean(room.archivedAt)}
+                      onClick={() => setRenameTarget({ roomId: room.id, id: t.id, title: t.title })}
+                    >
+                      <Glyph kind="edit" size={14} />
                     </button>
                     <button
                       className="icon-button delete-item"
                       aria-label={`Delete thread ${t.title}`}
+                      disabled={Boolean(room.archivedAt)}
                       onClick={() =>
                         setDeleteTarget({
                           kind: 'thread',
@@ -412,6 +534,11 @@ export function App() {
                     </button>
                   </div>
                 ))}
+                {threadSearch.trim() && !visibleThreads.length && (
+                  <p className="navigation-empty" role="status">
+                    No matching threads.
+                  </p>
+                )}
               </nav>
             </>
           )}
@@ -452,7 +579,11 @@ export function App() {
               {room && (
                 <Badge
                   value={
-                    room.status === 'running' && !activeCount && !queueCount ? 'idle' : room.status
+                    room.archivedAt
+                      ? 'archived'
+                      : room.status === 'running' && !activeCount && !queueCount
+                        ? 'idle'
+                        : room.status
                   }
                 />
               )}
@@ -463,7 +594,7 @@ export function App() {
             </div>
             <div className="controls">
               <button
-                disabled={busy || !room || room.status !== 'running'}
+                disabled={busy || !room || Boolean(room.archivedAt) || room.status !== 'running'}
                 onClick={() => {
                   void control('pause');
                 }}
@@ -473,7 +604,7 @@ export function App() {
                 Pause
               </button>
               <button
-                disabled={busy || !room || room.status === 'running'}
+                disabled={busy || !room || Boolean(room.archivedAt) || room.status === 'running'}
                 onClick={() => {
                   void control('resume');
                 }}
@@ -483,7 +614,7 @@ export function App() {
               </button>
               <button
                 className="stop-button"
-                disabled={busy || !room || room.status === 'stopped'}
+                disabled={busy || !room || Boolean(room.archivedAt) || room.status === 'stopped'}
                 onClick={() => {
                   void control('stop');
                 }}
@@ -493,12 +624,26 @@ export function App() {
               </button>
             </div>
           </div>
-          {room?.status === 'paused' && (
+          {room?.archivedAt && (
+            <div className="notice archived-notice" role="status">
+              <span>
+                This workspace is archived. History is available for inspection and export.
+              </span>
+              <button
+                onClick={() =>
+                  setArchiveTarget({ id: room.id, title: room.title, archived: false })
+                }
+              >
+                Restore workspace
+              </button>
+            </div>
+          )}
+          {!room?.archivedAt && room?.status === 'paused' && (
             <div className="notice">
               Dispatch is paused. Active answers may finish. Resume to run queued work.
             </div>
           )}
-          {room?.status === 'stopped' && (
+          {!room?.archivedAt && room?.status === 'stopped' && (
             <div className="notice">
               This room is stopped. Unfinished work was cancelled. Resume to ask a new question.
             </div>
@@ -721,9 +866,10 @@ export function App() {
               setDefaults(next);
               setTick((v) => v + 1);
             }}
-            onWorkspaceSaved={(next) => {
-              setRoom(next);
-              setTick((v) => v + 1);
+            onWorkspaceSaved={workspaceSaved}
+            onArchiveWorkspace={() => {
+              if (room)
+                setArchiveTarget({ id: room.id, title: room.title, archived: !room.archivedAt });
             }}
             onConfigure={setSettings}
             onDeleteWorkspace={() => {
@@ -738,6 +884,8 @@ export function App() {
           defaults={defaults}
           onClose={() => setNewRoom(false)}
           onCreated={(next) => {
+            setWorkspaceView('active');
+            setWorkspaceSearch('');
             setRooms((current) => [next, ...current]);
             setRoomId(next.id);
             setTick((v) => v + 1);
@@ -751,6 +899,26 @@ export function App() {
           target={deleteTarget}
           onClose={() => setDeleteTarget(null)}
           onDelete={() => remove(deleteTarget)}
+        />
+      )}
+      {archiveTarget && (
+        <ArchiveConfirmation
+          target={archiveTarget}
+          pending={Boolean(room?.id === archiveTarget.id && hasPendingWork(room))}
+          onClose={() => setArchiveTarget(null)}
+          onConfirm={() => archive(archiveTarget)}
+        />
+      )}
+      {renameTarget && (
+        <RenameThread
+          target={renameTarget}
+          archived={Boolean(room?.archivedAt)}
+          onClose={() => setRenameTarget(null)}
+          onSave={async (title) => {
+            const next = await api.renameThread(renameTarget.roomId, renameTarget.id, title);
+            if (roomId === renameTarget.roomId) workspaceSaved(next);
+            setRenameTarget(null);
+          }}
         />
       )}
       {inspect && room && (
@@ -868,7 +1036,11 @@ function MessageCard({
         <div className="message-actions">
           <button
             onClick={onReply}
-            disabled={m.status !== 'complete' || (agent && !isAgentActive(agent))}
+            disabled={
+              Boolean(room.archivedAt) ||
+              m.status !== 'complete' ||
+              (agent && !isAgentActive(agent))
+            }
             title={
               agent && !isAgentActive(agent)
                 ? 'Reactivate this participant in Settings to reply.'
@@ -1061,7 +1233,7 @@ function AgentCard({
               onClick={() => {
                 void onRetry(latest.id);
               }}
-              disabled={room.status === 'stopped'}
+              disabled={Boolean(room.archivedAt) || room.status === 'stopped'}
             >
               Retry this attempt
             </button>
@@ -1156,7 +1328,8 @@ function Composer({
     (type === 'discussion' && !leaderId);
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (sending || !body.trim() || room.status === 'stopped' || invalidRouting) return;
+    if (sending || !body.trim() || room.archivedAt || room.status === 'stopped' || invalidRouting)
+      return;
     setSending(true);
     onError('');
     clientId.current ??= crypto.randomUUID();
@@ -1197,279 +1370,281 @@ function Composer({
         void send(e);
       }}
     >
-      {rosterChanged && (
-        <p className="notice">
-          Participants changed. Review recipients, coordinator, and relay steps before sending. Your
-          draft is preserved.
-        </p>
-      )}
-      {reply && (
-        <div className="reply-indicator">
-          Replying to {nameOf(room, reply.authorId, reply.snapshotId)} · #{reply.sequence}
-          <button type="button" onClick={onClearReply} aria-label="Cancel reply">
-            <Glyph kind="close" size={14} />
-          </button>
-        </div>
-      )}
-      {type !== 'relay' && type !== 'discussion' && (
-        <div className="recipient-row">
-          <span className="eyebrow">TO</span>
-          {activeAgents.map((a) => (
-            <label
-              className={`recipient ${a.color} ${recipients.includes(a.id) ? 'checked' : ''}`}
-              key={a.id}
-            >
-              <input
-                type="checkbox"
-                checked={recipients.includes(a.id)}
-                onChange={() => {
-                  clientId.current = null;
-                  const next = recipients.includes(a.id)
-                    ? recipients.filter((id) => id !== a.id)
-                    : [...recipients, a.id];
-                  setRecipients(next);
-                  setSynthesizerId(
-                    activeAgents.find((agent) => !next.includes(agent.id))?.id ?? '',
-                  );
-                }}
-              />
-              <span>{nameOf(room, a.id)}</span>
-            </label>
-          ))}
-          <span className="visibility-label">Visible to the room</span>
-        </div>
-      )}
-      {type === 'discussion' && (
-        <div className="discussion-editor">
-          <label>
-            Coordinator
-            <select
-              aria-label="Discussion coordinator"
-              value={leaderId}
-              onChange={(e) => {
-                setLeaderId(e.target.value);
-                clientId.current = null;
-              }}
-            >
-              {activeAgents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {nameOf(room, a.id)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Peer rounds
-            <input
-              aria-label="Maximum peer rounds"
-              type="number"
-              required
-              min={1}
-              max={10}
-              value={maxRounds}
-              onChange={(e) => {
-                setMaxRounds(Number(e.target.value));
-                clientId.current = null;
-              }}
-            />
-          </label>
-          <label>
-            Turn allowance
-            <input
-              aria-label="Discussion turn allowance"
-              type="number"
-              required
-              min={2}
-              max={50}
-              value={maxTurns}
-              onChange={(e) => {
-                setMaxTurns(Number(e.target.value));
-                clientId.current = null;
-              }}
-            />
-          </label>
-          <p>
-            Allow {nameOf(room, leaderId)} to ask permitted active peers, collect answers, and
-            follow up. All messages stay visible to you.
+      <fieldset className="composer-fields" disabled={Boolean(room.archivedAt)}>
+        {rosterChanged && (
+          <p className="notice">
+            Participants changed. Review recipients, coordinator, and relay steps before sending.
+            Your draft is preserved.
           </p>
-        </div>
-      )}
-      {type === 'relay' && (
-        <div className="relay-editor">
-          <span className="eyebrow">RELAY ORDER</span>
-          <div className="relay-steps">
-            {relayOrder.map((id, index) => (
-              <label key={index}>
-                <span>{index + 1}</span>
-                <select
-                  aria-label={`Relay step ${index + 1}`}
-                  value={id}
-                  onChange={(e) => {
-                    setRelayOrder((order) =>
-                      order.map((value, i) => (i === index ? e.target.value : value)),
+        )}
+        {reply && (
+          <div className="reply-indicator">
+            Replying to {nameOf(room, reply.authorId, reply.snapshotId)} · #{reply.sequence}
+            <button type="button" onClick={onClearReply} aria-label="Cancel reply">
+              <Glyph kind="close" size={14} />
+            </button>
+          </div>
+        )}
+        {type !== 'relay' && type !== 'discussion' && (
+          <div className="recipient-row">
+            <span className="eyebrow">TO</span>
+            {activeAgents.map((a) => (
+              <label
+                className={`recipient ${a.color} ${recipients.includes(a.id) ? 'checked' : ''}`}
+                key={a.id}
+              >
+                <input
+                  type="checkbox"
+                  checked={recipients.includes(a.id)}
+                  onChange={() => {
+                    clientId.current = null;
+                    const next = recipients.includes(a.id)
+                      ? recipients.filter((id) => id !== a.id)
+                      : [...recipients, a.id];
+                    setRecipients(next);
+                    setSynthesizerId(
+                      activeAgents.find((agent) => !next.includes(agent.id))?.id ?? '',
                     );
-                    clientId.current = null;
                   }}
-                >
-                  {activeAgents.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {nameOf(room, a.id)}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  aria-label={`Remove relay step ${index + 1}`}
-                  disabled={relayOrder.length === 1}
-                  onClick={() => {
-                    setRelayOrder((order) => order.filter((_, i) => i !== index));
-                    clientId.current = null;
-                  }}
-                >
-                  ×
-                </button>
+                />
+                <span>{nameOf(room, a.id)}</span>
               </label>
             ))}
+            <span className="visibility-label">Visible to the room</span>
           </div>
-          <button
-            type="button"
-            disabled={relayOrder.length >= 12}
-            onClick={() => {
-              setRelayOrder((order) => [...order, activeAgents[0]!.id]);
-              clientId.current = null;
-            }}
-          >
-            Add relay step
-          </button>
-        </div>
-      )}
-      <textarea
-        ref={textarea}
-        aria-label="Message"
-        placeholder={
-          type !== 'update'
-            ? 'What should the agents explore?'
-            : 'Share an update. No replies will be scheduled.'
-        }
-        value={body}
-        maxLength={12000}
-        rows={3}
-        onChange={(e) => {
-          setBody(e.target.value);
-          clientId.current = null;
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            e.currentTarget.form?.requestSubmit();
-          }
-        }}
-        disabled={sending || room.status === 'stopped'}
-      />
-      <div className="composer-bottom">
-        <div className="composer-options">
-          <select
-            aria-label="Message type"
-            value={type}
-            onChange={(e) => {
-              setType(e.target.value as typeof type);
-              clientId.current = null;
-            }}
-          >
-            <option value="question">Question</option>
-            <option value="relay">Automatic relay</option>
-            <option value="discussion">Agent discussion</option>
-            <option value="update">Update · no reply</option>
-          </select>
-          {type !== 'update' && (
-            <label className="deadline-option">
-              Deadline (s)
-              <input
-                aria-label="Response deadline in seconds"
-                className="quorum"
-                type="number"
-                required
-                min={5}
-                max={600}
-                value={deadlineSeconds}
-                onChange={(e) => {
-                  setDeadlineSeconds(Number(e.target.value));
-                  clientId.current = null;
-                }}
-              />
-            </label>
-          )}
-          {type === 'question' && (
-            <>
+        )}
+        {type === 'discussion' && (
+          <div className="discussion-editor">
+            <label>
+              Coordinator
               <select
-                aria-label="Response policy"
-                value={policy}
+                aria-label="Discussion coordinator"
+                value={leaderId}
                 onChange={(e) => {
-                  setPolicy(e.target.value as typeof policy);
+                  setLeaderId(e.target.value);
                   clientId.current = null;
                 }}
               >
-                <option value="all">Wait for all</option>
-                <option value="any">First answer</option>
-                <option value="quorum">Quorum</option>
+                {activeAgents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {nameOf(room, a.id)}
+                  </option>
+                ))}
               </select>
-              {policy === 'quorum' && (
+            </label>
+            <label>
+              Peer rounds
+              <input
+                aria-label="Maximum peer rounds"
+                type="number"
+                required
+                min={1}
+                max={10}
+                value={maxRounds}
+                onChange={(e) => {
+                  setMaxRounds(Number(e.target.value));
+                  clientId.current = null;
+                }}
+              />
+            </label>
+            <label>
+              Turn allowance
+              <input
+                aria-label="Discussion turn allowance"
+                type="number"
+                required
+                min={2}
+                max={50}
+                value={maxTurns}
+                onChange={(e) => {
+                  setMaxTurns(Number(e.target.value));
+                  clientId.current = null;
+                }}
+              />
+            </label>
+            <p>
+              Allow {nameOf(room, leaderId)} to ask permitted active peers, collect answers, and
+              follow up. All messages stay visible to you.
+            </p>
+          </div>
+        )}
+        {type === 'relay' && (
+          <div className="relay-editor">
+            <span className="eyebrow">RELAY ORDER</span>
+            <div className="relay-steps">
+              {relayOrder.map((id, index) => (
+                <label key={index}>
+                  <span>{index + 1}</span>
+                  <select
+                    aria-label={`Relay step ${index + 1}`}
+                    value={id}
+                    onChange={(e) => {
+                      setRelayOrder((order) =>
+                        order.map((value, i) => (i === index ? e.target.value : value)),
+                      );
+                      clientId.current = null;
+                    }}
+                  >
+                    {activeAgents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {nameOf(room, a.id)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    aria-label={`Remove relay step ${index + 1}`}
+                    disabled={relayOrder.length === 1}
+                    onClick={() => {
+                      setRelayOrder((order) => order.filter((_, i) => i !== index));
+                      clientId.current = null;
+                    }}
+                  >
+                    ×
+                  </button>
+                </label>
+              ))}
+            </div>
+            <button
+              type="button"
+              disabled={relayOrder.length >= 12}
+              onClick={() => {
+                setRelayOrder((order) => [...order, activeAgents[0]!.id]);
+                clientId.current = null;
+              }}
+            >
+              Add relay step
+            </button>
+          </div>
+        )}
+        <textarea
+          ref={textarea}
+          aria-label="Message"
+          placeholder={
+            type !== 'update'
+              ? 'What should the agents explore?'
+              : 'Share an update. No replies will be scheduled.'
+          }
+          value={body}
+          maxLength={12000}
+          rows={3}
+          onChange={(e) => {
+            setBody(e.target.value);
+            clientId.current = null;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+          disabled={sending || room.status === 'stopped'}
+        />
+        <div className="composer-bottom">
+          <div className="composer-options">
+            <select
+              aria-label="Message type"
+              value={type}
+              onChange={(e) => {
+                setType(e.target.value as typeof type);
+                clientId.current = null;
+              }}
+            >
+              <option value="question">Question</option>
+              <option value="relay">Automatic relay</option>
+              <option value="discussion">Agent discussion</option>
+              <option value="update">Update · no reply</option>
+            </select>
+            {type !== 'update' && (
+              <label className="deadline-option">
+                Deadline (s)
                 <input
+                  aria-label="Response deadline in seconds"
                   className="quorum"
-                  aria-label="Required answers"
                   type="number"
-                  min={1}
-                  max={Math.max(1, recipients.length)}
-                  value={quorum}
+                  required
+                  min={5}
+                  max={600}
+                  value={deadlineSeconds}
                   onChange={(e) => {
-                    setQuorum(Number(e.target.value));
+                    setDeadlineSeconds(Number(e.target.value));
                     clientId.current = null;
                   }}
                 />
-              )}
-              <label className="synthesis-option">
-                <input
-                  type="checkbox"
-                  checked={synthesis && !!synthesizer}
-                  disabled={!synthesisCandidate}
-                  onChange={(e) => {
-                    setSynthesis(e.target.checked);
-                    if (e.target.checked && !synthesizer && synthesisCandidate)
-                      setSynthesizerId(synthesisCandidate.id);
-                    clientId.current = null;
-                  }}
-                />
-                {synthesizer
-                  ? `${nameOf(room, synthesizer.id)} synthesizes`
-                  : synthesisCandidate
-                    ? 'Synthesize collected answers'
-                    : 'No separate synthesizer'}
               </label>
-            </>
-          )}
+            )}
+            {type === 'question' && (
+              <>
+                <select
+                  aria-label="Response policy"
+                  value={policy}
+                  onChange={(e) => {
+                    setPolicy(e.target.value as typeof policy);
+                    clientId.current = null;
+                  }}
+                >
+                  <option value="all">Wait for all</option>
+                  <option value="any">First answer</option>
+                  <option value="quorum">Quorum</option>
+                </select>
+                {policy === 'quorum' && (
+                  <input
+                    className="quorum"
+                    aria-label="Required answers"
+                    type="number"
+                    min={1}
+                    max={Math.max(1, recipients.length)}
+                    value={quorum}
+                    onChange={(e) => {
+                      setQuorum(Number(e.target.value));
+                      clientId.current = null;
+                    }}
+                  />
+                )}
+                <label className="synthesis-option">
+                  <input
+                    type="checkbox"
+                    checked={synthesis && !!synthesizer}
+                    disabled={!synthesisCandidate}
+                    onChange={(e) => {
+                      setSynthesis(e.target.checked);
+                      if (e.target.checked && !synthesizer && synthesisCandidate)
+                        setSynthesizerId(synthesisCandidate.id);
+                      clientId.current = null;
+                    }}
+                  />
+                  {synthesizer
+                    ? `${nameOf(room, synthesizer.id)} synthesizes`
+                    : synthesisCandidate
+                      ? 'Synthesize collected answers'
+                      : 'No separate synthesizer'}
+                </label>
+              </>
+            )}
+          </div>
+          <button
+            className="primary send-button"
+            type="submit"
+            disabled={sending || !body.trim() || room.status === 'stopped' || invalidRouting}
+          >
+            {sending ? 'Sending…' : room.status === 'paused' ? 'Queue' : 'Send'}
+            <Glyph kind="send" size={15} />
+          </button>
         </div>
-        <button
-          className="primary send-button"
-          type="submit"
-          disabled={sending || !body.trim() || room.status === 'stopped' || invalidRouting}
-        >
-          {sending ? 'Sending…' : room.status === 'paused' ? 'Queue' : 'Send'}
-          <Glyph kind="send" size={15} />
-        </button>
-      </div>
-      <div className="composer-footnote">
-        <span>
-          {threadId ? 'This thread' : 'Starts a new thread'} ·{' '}
-          {type === 'update'
-            ? 'No agents invoked'
-            : type === 'relay'
-              ? `${relayOrder.length} turns reserved; each hop waits for the previous answer`
-              : type === 'discussion'
-                ? `${maxTurns} turns reserved, including decisions, peer answers, and correction attempts`
-                : 'Independent answers from the same starting context'}
-        </span>
-        <span>Ctrl / ⌘ + Enter</span>
-      </div>
+        <div className="composer-footnote">
+          <span>
+            {threadId ? 'This thread' : 'Starts a new thread'} ·{' '}
+            {type === 'update'
+              ? 'No agents invoked'
+              : type === 'relay'
+                ? `${relayOrder.length} turns reserved; each hop waits for the previous answer`
+                : type === 'discussion'
+                  ? `${maxTurns} turns reserved, including decisions, peer answers, and correction attempts`
+                  : 'Independent answers from the same starting context'}
+          </span>
+          <span>Ctrl / ⌘ + Enter</span>
+        </div>
+      </fieldset>
     </form>
   );
 }
@@ -1572,6 +1747,132 @@ function DeleteConfirmation({
     </Modal>
   );
 }
+function ArchiveConfirmation({
+  target,
+  pending,
+  onClose,
+  onConfirm,
+}: {
+  target: ArchiveTarget;
+  pending: boolean;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <Modal
+      title={`${target.archived ? 'Archive' : 'Restore'} workspace?`}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <div className="archive-confirmation">
+        <p className="delete-name">{target.title}</p>
+        <p>
+          {target.archived
+            ? 'Keep this workspace and its full history in the archive. Finish or stop pending work first. Archived workspaces cannot send messages, run connection tests, or change settings.'
+            : 'Return this workspace to the active list. Its history and consumed turns stay unchanged. It remains paused until you explicitly resume.'}
+        </p>
+        {target.archived && pending && (
+          <p className="notice">Finish or stop pending work before archiving.</p>
+        )}
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="settings-actions">
+          <button autoFocus disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="primary"
+            disabled={busy || (target.archived && pending)}
+            onClick={() => {
+              setBusy(true);
+              setError('');
+              void onConfirm().catch((e: unknown) => {
+                setError(errorText(e));
+                setBusy(false);
+              });
+            }}
+          >
+            {busy ? 'Working…' : `${target.archived ? 'Archive' : 'Restore'} workspace`}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function RenameThread({
+  target,
+  archived,
+  onClose,
+  onSave,
+}: {
+  target: RenameTarget;
+  archived: boolean;
+  onClose: () => void;
+  onSave: (title: string) => Promise<void>;
+}) {
+  const [title, setTitle] = useState(target.title);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <Modal
+      title="Rename thread"
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <form
+        className="room-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (busy || archived || !title.trim()) return;
+          setBusy(true);
+          setError('');
+          void onSave(title).catch((e: unknown) => {
+            setError(errorText(e));
+            setBusy(false);
+          });
+        }}
+      >
+        <p className="muted">
+          Change the name without changing messages, reply links, or pending work.
+        </p>
+        {archived && <p className="notice">Restore this workspace before renaming its threads.</p>}
+        <label>
+          Thread name
+          <input
+            autoFocus
+            required
+            maxLength={100}
+            value={title}
+            disabled={busy || archived}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </label>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="settings-actions">
+          <button type="button" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary" disabled={busy || archived || !title.trim()}>
+            {busy ? 'Saving…' : 'Save thread name'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function NewRoom({
   defaults,
   onClose,

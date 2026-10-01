@@ -18,6 +18,8 @@ import type {
   WorkspaceSettingsInput,
   AddAgentInput,
   AgentActivationInput,
+  WorkspaceArchiveInput,
+  ThreadSettingsInput,
 } from '../shared/contracts.js';
 import {
   agentActionSchema,
@@ -31,6 +33,8 @@ import {
   agentLabel,
   hasPendingWork,
   maxParticipants,
+  workspaceArchiveSchema,
+  threadSettingsSchema,
 } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
@@ -94,6 +98,7 @@ export class ConversationEngine extends EventEmitter {
       title: input.title,
       objective: input.objective,
       status: 'running',
+      archivedAt: null,
       revision: 0,
       createdAt,
       updatedAt: createdAt,
@@ -136,6 +141,7 @@ export class ConversationEngine extends EventEmitter {
   configureWorkspace(roomId: string, raw: WorkspaceSettingsInput): void {
     const input = workspaceSettingsSchema.parse(raw);
     this.store.mutate(roomId, (room) => {
+      this.assertWorkspaceOpen(room);
       if (
         room.jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
         room.relays.some((r) => ['running', 'blocked'].includes(r.status)) ||
@@ -156,6 +162,50 @@ export class ConversationEngine extends EventEmitter {
     this.changed(roomId);
   }
 
+  setWorkspaceArchived(roomId: string, raw: WorkspaceArchiveInput): Room {
+    const input = workspaceArchiveSchema.parse(raw);
+    this.store.mutate(roomId, (room) => {
+      if (Boolean(room.archivedAt) === input.archived) return;
+      if (
+        input.archived &&
+        (hasPendingWork(room) || room.agents.some((a) => this.connectionChecks.has(a.id)))
+      )
+        throw new AppError(409, 'Finish or stop pending work before archiving this workspace.');
+      room.archivedAt = input.archived ? this.timestamp() : null;
+      room.status = 'paused';
+      this.audit(
+        room,
+        input.archived ? 'room.archived' : 'room.restored',
+        input.archived
+          ? 'Workspace archived. History and consumed turns retained; no work can be scheduled.'
+          : 'Workspace restored and paused. Resume explicitly before running work.',
+      );
+    });
+    this.changed(roomId);
+    return this.store.get(roomId);
+  }
+
+  renameThread(roomId: string, threadId: string, raw: ThreadSettingsInput): Room {
+    const input = threadSettingsSchema.parse(raw);
+    this.store.mutate(roomId, (room) => {
+      this.assertWorkspaceOpen(room);
+      const thread = room.threads.find((t) => t.id === threadId);
+      if (!thread) throw new AppError(404, 'Thread not found.');
+      thread.title = input.title;
+      this.audit(room, 'thread.renamed', `Thread ${thread.id} renamed to ${thread.title}.`);
+    });
+    this.changed(roomId);
+    return this.store.get(roomId);
+  }
+
+  private assertWorkspaceOpen(room: Room): void {
+    if (room.archivedAt)
+      throw new AppError(
+        409,
+        'Restore this archived workspace before changing it or running work.',
+      );
+  }
+
   deleteRoom(roomId: string): void {
     const room = this.store.get(roomId);
     this.store.delete(roomId);
@@ -174,6 +224,7 @@ export class ConversationEngine extends EventEmitter {
 
   deleteThread(roomId: string, threadId: string): Room {
     const abortIds = this.store.mutate(roomId, (room) => {
+      this.assertWorkspaceOpen(room);
       if (!room.threads.some((t) => t.id === threadId))
         throw new AppError(404, 'Thread not found.');
       room.messageSequence ??= room.messages.reduce((n, m) => Math.max(n, m.sequence), 0);
@@ -365,6 +416,7 @@ export class ConversationEngine extends EventEmitter {
   }
 
   private assertRosterEditable(room: Room): void {
+    this.assertWorkspaceOpen(room);
     if (hasPendingWork(room) || room.agents.some((a) => this.connectionChecks.has(a.id)))
       throw new AppError(
         409,
@@ -382,6 +434,7 @@ export class ConversationEngine extends EventEmitter {
   async testConnection(roomId: string, agentId: string): Promise<{ reply: string }> {
     if (this.closed) throw new AppError(409, 'Service is shutting down.');
     const room = this.store.get(roomId);
+    this.assertWorkspaceOpen(room);
     const agent = room.agents.find((a) => a.id === agentId);
     if (!agent) throw new AppError(400, 'Unknown participant.');
     if (!isAgentActive(agent))
@@ -435,6 +488,7 @@ export class ConversationEngine extends EventEmitter {
     if (!input.discussion) delete (canonical as Partial<typeof input>).discussion;
     const commandHash = createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
     const current = this.store.get(roomId);
+    this.assertWorkspaceOpen(current);
     if (current.deletedClientIds?.includes(input.clientId))
       throw new AppError(
         409,
@@ -639,6 +693,7 @@ export class ConversationEngine extends EventEmitter {
 
   control(roomId: string, action: 'pause' | 'resume' | 'stop'): void {
     this.store.mutate(roomId, (room) => {
+      this.assertWorkspaceOpen(room);
       room.status = action === 'resume' ? 'running' : action === 'pause' ? 'paused' : 'stopped';
       if (action === 'stop') {
         for (const discussion of room.discussions)
@@ -670,6 +725,7 @@ export class ConversationEngine extends EventEmitter {
 
   stopDiscussion(roomId: string, discussionId: string): void {
     this.store.mutate(roomId, (room) => {
+      this.assertWorkspaceOpen(room);
       const discussion = room.discussions.find((d) => d.id === discussionId);
       if (!discussion) throw new AppError(400, 'Unknown discussion.');
       if (discussion.status === 'completed' || discussion.status === 'cancelled') return;
@@ -686,6 +742,7 @@ export class ConversationEngine extends EventEmitter {
 
   retry(roomId: string, jobId: string): void {
     this.store.mutate(roomId, (room) => {
+      this.assertWorkspaceOpen(room);
       const previous = room.jobs.find((j) => j.id === jobId);
       if (!previous || !['failed', 'interrupted'].includes(previous.status))
         throw new AppError(400, 'Only failed or interrupted work can be retried.');
@@ -791,6 +848,7 @@ export class ConversationEngine extends EventEmitter {
   pump(): void {
     if (this.closed) return;
     for (const initial of this.store.all()) {
+      if (initial.archivedAt) continue;
       this.expire(initial.id);
       const room = this.store.get(initial.id);
       if (room.status !== 'running') continue;
@@ -824,7 +882,7 @@ export class ConversationEngine extends EventEmitter {
     let claimedAgentId = '';
     this.store.mutate(roomId, (room) => {
       const job = room.jobs.find((j) => j.id === jobId)!;
-      if (room.status !== 'running' || job.status !== 'queued') return;
+      if (room.archivedAt || room.status !== 'running' || job.status !== 'queued') return;
       const request = room.requests.find((r) => r.id === job.requestId)!;
       if (!room.agents.some((a) => a.id === job.agentId && isAgentActive(a))) {
         this.cancelJob(room, job);
@@ -1477,6 +1535,7 @@ export class ConversationEngine extends EventEmitter {
   private recover(): void {
     for (const initial of this.store.all()) {
       if (
+        !(initial.archivedAt && initial.status !== 'paused') &&
         !initial.jobs.some((j) => j.status === 'running' || j.status === 'queued') &&
         !initial.relays.some((r) => r.status === 'running' || r.status === 'blocked') &&
         !initial.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status))

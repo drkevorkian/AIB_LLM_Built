@@ -65,11 +65,12 @@ export class RoomStore {
 
   list(): RoomSummary[] {
     return this.all()
-      .map(({ id, title, objective, status, revision, updatedAt }) => ({
+      .map(({ id, title, objective, status, archivedAt, revision, updatedAt }) => ({
         id,
         title,
         objective,
         status,
+        archivedAt: archivedAt ?? null,
         revision,
         updatedAt,
       }))

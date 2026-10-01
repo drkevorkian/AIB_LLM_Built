@@ -60,6 +60,11 @@ export function Participants({
         Deactivated participants keep their history and can be reactivated.
       </p>
       {pending && <p className="notice">Finish or stop pending work before changing the roster.</p>}
+      {room.archivedAt && (
+        <p className="notice">
+          Restore this workspace before changing participants or running connection tests.
+        </p>
+      )}
       {error && (
         <p className="form-error" role="alert">
           {error}
@@ -117,7 +122,9 @@ export function Participants({
                   Configure {agentLabel(room, agent.id)}
                 </button>
                 <button
-                  disabled={busy || pending || (active && activeCount === 1)}
+                  disabled={
+                    busy || pending || Boolean(room.archivedAt) || (active && activeCount === 1)
+                  }
                   title={
                     active && activeCount === 1
                       ? 'Keep at least one active participant.'
@@ -145,43 +152,50 @@ export function Participants({
           }}
         >
           <h3>Add participant</h3>
-          <label>
-            New participant name
-            <input
-              required
-              autoFocus
-              maxLength={60}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-          <label>
-            New participant role
-            <textarea
-              required
-              rows={3}
-              maxLength={3000}
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-            />
-          </label>
-          <p className="muted">
-            Starts in simulation. Its identity is separate from every other instance of the same
-            provider or model.
-          </p>
-          <div className="settings-actions">
-            <button className="primary" disabled={busy || pending || !name.trim() || !role.trim()}>
-              {busy ? 'Adding…' : 'Create participant'}
-            </button>
-            <button type="button" disabled={busy} onClick={() => setAdding(false)}>
-              Cancel
-            </button>
-          </div>
+          <fieldset className="settings-fields" disabled={Boolean(room.archivedAt)}>
+            <label>
+              New participant name
+              <input
+                required
+                autoFocus
+                maxLength={60}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <label>
+              New participant role
+              <textarea
+                required
+                rows={3}
+                maxLength={3000}
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+              />
+            </label>
+            <p className="muted">
+              Starts in simulation. Its identity is separate from every other instance of the same
+              provider or model.
+            </p>
+            <div className="settings-actions">
+              <button
+                className="primary"
+                disabled={busy || pending || !name.trim() || !role.trim()}
+              >
+                {busy ? 'Adding…' : 'Create participant'}
+              </button>
+              <button type="button" disabled={busy} onClick={() => setAdding(false)}>
+                Cancel
+              </button>
+            </div>
+          </fieldset>
         </form>
       ) : (
         <button
           className="add-participant-button"
-          disabled={busy || pending || room.agents.length >= maxParticipants}
+          disabled={
+            busy || pending || Boolean(room.archivedAt) || room.agents.length >= maxParticipants
+          }
           onClick={() => {
             setName(`AI ${String.fromCharCode(65 + room.agents.length)}`);
             setError('');
