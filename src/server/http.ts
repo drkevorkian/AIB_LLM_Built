@@ -214,8 +214,16 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
             .find((s) => s.id === message.snapshotId)
             ?.agents.find((a) => a.id === message.authorId);
           const attempt = room.jobs.find((j) => j.messageId === message.id);
+          const recipients =
+            message.recipientIds
+              .map(
+                (id) =>
+                  `${id === 'human' ? 'Human' : (room.agents.find((a) => a.id === id)?.name ?? id)} (${id})`,
+              )
+              .join(', ') || 'room observers';
+          const action = attempt?.agentAction;
           parts.push(
-            `\n## ${name} · ${message.type} · ${message.status}\n\nMessage: ${message.id} · Thread: ${message.threadId}\n\nReply to: ${message.replyTo ?? 'none'}${binding ? `\n\nProvider: ${binding.provider} · Model: ${binding.model}` : ''}${attempt?.providerRequestId ? `\n\nProvider request: ${attempt.providerRequestId}` : ''}${attempt?.usage ? `\n\nToken usage: ${JSON.stringify(attempt.usage)}` : ''}\n\n${message.body}\n`,
+            `\n## ${name} · ${message.type} · ${message.status}\n\nMessage: ${message.id} · Thread: ${message.threadId}\n\nTo: ${recipients}\n\nReply to: ${message.replyTo ?? 'none'}${attempt ? `\n\nAttempt: ${attempt.id} · ${attempt.kind}${attempt.previousJobId ? ` · follows ${attempt.previousJobId}` : ''}${attempt.error ? `\n\nAttempt error: ${attempt.error}` : ''}` : ''}${action ? `\n\nAction: ${action.kind} · Policy: ${action.policy} · Quorum: ${action.quorum}` : ''}${binding ? `\n\nProvider: ${binding.provider} · Model: ${binding.model}` : ''}${attempt?.providerRequestId ? `\n\nProvider request: ${attempt.providerRequestId}` : ''}${attempt?.usage ? `\n\nToken usage: ${JSON.stringify(attempt.usage)}` : ''}\n\n${message.body}\n`,
           );
         }
         res.end(parts.join(''));

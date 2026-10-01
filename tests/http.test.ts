@@ -5,11 +5,12 @@ import { test } from 'node:test';
 import { ConversationEngine } from '../src/server/engine.js';
 import { serve } from '../src/server/http.js';
 import { RoomStore } from '../src/server/store.js';
-import { command, ControlledProvider } from './helpers.js';
+import { command, ControlledProvider, until } from './helpers.js';
 
 test('local HTTP boundary enforces token, host, origin, strict commands, and safe output', async () => {
   const store = new RoomStore(':memory:');
-  const engine = new ConversationEngine(store, new ControlledProvider(), { autoSchedule: false });
+  const provider = new ControlledProvider();
+  const engine = new ConversationEngine(store, provider, { autoSchedule: false });
   const room = engine.createRoom({ title: 'HTTP test', objective: '', maxTurns: 100 });
   const app = await serve(engine, { port: 0, clientDir: resolve('dist/client') });
   const base = `http://127.0.0.1:${app.port}`;
@@ -125,12 +126,34 @@ test('local HTTP boundary enforces token, host, origin, strict commands, and saf
       'queued',
       'Stopping a discussion must retain unrelated obligations.',
     );
+    provider.actions[1] = {
+      kind: 'finish',
+      body: 'Exported coordinator result.',
+      recipientIds: [],
+      policy: 'all',
+      quorum: 1,
+      replyTo: null,
+    };
+    const completedDiscussion = engine.send(
+      room.id,
+      command([room.agents[0]!.id], { discussion: { maxRounds: 1, maxTurns: 2 } }),
+    );
+    engine.pump();
+    provider.releases.forEach((release) => release());
+    await until(
+      () =>
+        store.get(room.id).discussions.find((d) => d.id === completedDiscussion.discussionId)!
+          .status === 'completed',
+    );
     const exported = await fetch(`${base}/api/rooms/${room.id}/export`, { headers });
     assert.match(exported.headers.get('content-type')!, /text\/markdown/);
     const text = await exported.text();
     assert.ok(text.includes('Simulation transcript'));
     assert.ok(text.includes(`Discussion: ${discussionId}`));
     assert.ok(text.includes('Peer rounds: 0/3'));
+    assert.ok(text.includes('To: Human (human)'));
+    assert.ok(text.includes('Action: finish · Policy: all · Quorum: 1'));
+    assert.ok(text.includes('Attempt: '));
     assert.ok(!text.includes(token));
     assert.equal((await fetch(`${base}/package.json`)).status, 404);
     assert.equal((await fetch(`${base}/..%2F..%2Fpackage.json`)).status, 403);
