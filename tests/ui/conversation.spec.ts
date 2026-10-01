@@ -5,9 +5,11 @@ import type { AgentAction } from '../../src/shared/contracts.js';
 async function createRoom(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: 'New room', exact: true }).click();
-  await page.getByLabel('Room name').fill(`Conversation ${randomUUID().slice(0, 8)}`);
+  const title = `Conversation ${randomUUID().slice(0, 8)}`;
+  await page.getByLabel('Room name').fill(title);
   await page.getByLabel('Shared objective').fill('Investigate the delivery sequence.');
   await page.getByRole('button', { name: 'Create room', exact: true }).click();
+  await expect(page.getByRole('heading', { name: title, exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Start a conversation.' })).toBeVisible();
   await expect(page.locator('.agent-card')).toHaveCount(3);
   await expect(page.getByLabel('Message', { exact: true })).toBeVisible();
@@ -410,4 +412,37 @@ test('a discussion can be stopped from its card while the room remains usable', 
     .fill('Continue independently after stopping that discussion.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.locator('.message.update')).toHaveCount(1);
+});
+
+test('switching rooms hides the old composer until the selected room loads', async ({ page }) => {
+  await createRoom(page);
+  await page.getByLabel('Message', { exact: true }).fill('Draft belonging to the previous room.');
+  let release!: () => void;
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  const roomUrl = /\/api\/rooms\/[a-zA-Z0-9_-]+$/;
+  await page.route(roomUrl, async (route) => {
+    if (route.request().method() === 'GET') await gate;
+    await route.continue();
+  });
+  try {
+    const title = `Delayed room ${randomUUID().slice(0, 8)}`;
+    await page.getByRole('button', { name: 'New room', exact: true }).click();
+    await page.getByLabel('Room name').fill(title);
+    await page.getByRole('button', { name: 'Create room', exact: true }).click();
+    await expect(page.locator('dialog')).toHaveCount(0);
+    await expect(page.getByText('Opening room…', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Message', { exact: true })).toHaveCount(0);
+    release();
+    await expect(page.getByRole('heading', { name: title, exact: true, level: 1 })).toBeVisible();
+    await expect(page.getByLabel('Message', { exact: true })).toHaveValue('');
+    await page.getByLabel('Message', { exact: true }).fill('Draft belonging to the selected room.');
+    await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+      'Draft belonging to the selected room.',
+    );
+  } finally {
+    release();
+    await page.unroute(roomUrl);
+  }
 });

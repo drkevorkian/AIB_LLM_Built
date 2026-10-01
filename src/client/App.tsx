@@ -74,7 +74,8 @@ function time(value: string) {
 export function App() {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [roomId, setRoomId] = useState<string | null>(null);
-  const [room, setRoom] = useState<Room | null>(null);
+  const [loadedRoom, setRoom] = useState<Room | null>(null);
+  const room = loadedRoom?.id === roomId ? loadedRoom : null;
   const [threadId, setThreadId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [connected, setConnected] = useState(false);
@@ -113,6 +114,7 @@ export function App() {
     void api
       .list(abort.signal)
       .then((list) => {
+        if (abort.signal.aborted) return;
         setRooms(list);
         setRoomId((current) => current ?? list[0]?.id ?? null);
       })
@@ -134,7 +136,9 @@ export function App() {
     const abort = new AbortController();
     void api
       .room(roomId, abort.signal)
-      .then(setRoom)
+      .then((next) => {
+        if (!abort.signal.aborted) setRoom(next);
+      })
       .catch((e: unknown) => {
         if (!abort.signal.aborted) setError(errorText(e));
       });
