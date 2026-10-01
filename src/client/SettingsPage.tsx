@@ -7,6 +7,7 @@ import {
   type WorkspaceSettingsInput,
 } from '../shared/contracts.js';
 import { api } from './api.js';
+import { Participants } from './Participants.js';
 
 export function SettingsPage({
   defaults,
@@ -85,21 +86,12 @@ export function SettingsPage({
           </div>
         </div>
         {room ? (
-          <div className="settings-participants">
-            {room.agents.map((agent) => (
-              <div className="settings-participant" key={agent.id}>
-                <span className={`avatar ${agent.color}`}>{agent.name.at(-1)}</span>
-                <div>
-                  <strong>{agent.name}</strong>
-                  <small>
-                    {agent.provider} / {agent.model}
-                  </small>
-                  <p>{agent.role}</p>
-                </div>
-                <button onClick={() => onConfigure(agent)}>Configure {agent.name}</button>
-              </div>
-            ))}
-          </div>
+          <Participants
+            key={room.id}
+            room={room}
+            onSaved={onWorkspaceSaved}
+            onConfigure={onConfigure}
+          />
         ) : (
           <p className="muted">Participant settings appear when a workspace is selected.</p>
         )}

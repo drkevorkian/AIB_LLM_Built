@@ -41,7 +41,7 @@ try {
   throw error;
 }
 console.log(
-  `\nAI Conversation Room v0.4.1\nOpen http://127.0.0.1:${app.port}\nConfigure each participant to use a live provider or simulation.\nData: ${dataDir}\nWork continues while this service is running. Pause or stop before closing a view.\n`,
+  `\nAI Conversation Room v0.5.0\nOpen http://127.0.0.1:${app.port}\nConfigure each participant to use a live provider or simulation.\nData: ${dataDir}\nWork continues while this service is running. Pause or stop before closing a view.\n`,
 );
 let stopping = false;
 async function shutdown() {

@@ -2,7 +2,7 @@
 
 A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** v0.4.1 supports Node.js 26.10 alongside Node 24. The application includes a dedicated Settings page, persistent conversation defaults, workspace editing, and confirmed workspace/thread deletion. A human-selected coordinator can ask one or both peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and the full browser flow are tested with fixtures; paid-provider accounts have not been verified in this workspace because credentials are unavailable. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
+**Status:** v0.5.0 supports workspaces with 1–8 independent participants, roster management in Settings, and persistent participant configuration history. Node.js 26.10 and Node 24 are supported. A human-selected coordinator can ask active peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. The application also includes saved conversation defaults, workspace editing, and confirmed workspace/thread deletion. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and browser flows are tested with fixtures; credentialed provider accounts and installed local models have not been verified in this workspace. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
 
 ## Overview
 
@@ -25,8 +25,10 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
 
-## Available in v0.4.1
+## Available in v0.5.0
 
+- Create workspaces with 1–8 participants; add, deactivate, and reactivate participants in Settings while retaining their identities and history.
+- Record every new participant configuration revision, including unused edits, and preserve the original author names and provider/model bindings on historical answers.
 - Configurable OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible text-generation connections, alongside clearly labeled simulation.
 - Participant name/role editing, exact model IDs, model discovery, output limits, and connection timeouts.
 - A connection test that makes an actual short generation request and reports its result.
@@ -42,7 +44,7 @@ You can ask two agents for independent opinions, wait for both, send their answe
 
 New rooms start in simulation so launch does not invoke or bill a provider. Configure participants explicitly to use real models. Missing credentials or failed live requests produce visible failures; they never fall back to simulation.
 
-See [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
+See [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
 
 ![Agent discussion through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
 
@@ -74,7 +76,7 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:4317**. The first launch creates a room with AI A, AI B, and AI C. The default composer asks B and C independently, then queues A to synthesize their completed answers. Turn off synthesis or change the recipients for a directed conversation. Choose **Update · no reply** to share information without invoking anyone. Click **Configure AI A/B/C** on the participant cards to select actual models. New rooms have independent participant settings.
+Open **http://127.0.0.1:4317**. The first launch creates a room with AI A, AI B, and AI C. The default composer asks B and C independently, then queues A to synthesize their completed answers. Turn off synthesis or change the recipients for a directed conversation. Choose **Update · no reply** to share information without invoking anyone. Click a participant's **Configure** button to select actual models. New workspaces let you choose 1–8 participants and have independent participant settings. A single-participant workspace starts with a directed request; larger workspaces default to parallel answers and synthesis by the first active participant.
 
 The client updates during development. Restart the service after server-source changes. To run built assets:
 
@@ -88,9 +90,9 @@ The service continues working if the browser view closes. Pause or stop from the
 ### Connect real models
 
 1. Copy `.env.example` to `.env` in the repository directory. For a cloud provider, set `OPENAI_API_KEY`, `XAI_API_KEY`, or `GEMINI_API_KEY` locally. Restart the service after changing keys. Environment variables already set in the service take precedence over `.env`.
-2. Click **Configure AI A**, **Configure AI B**, or **Configure AI C**. Choose its provider, edit its role, and enter the exact text-generation model ID. **Load available models** reads the provider catalog; some catalog entries may not support text generation.
+2. Click **Configure** on a participant card or in Settings. Choose its provider, edit its role, and enter the exact text-generation model ID. **Load available models** reads the provider catalog; some catalog entries may not support text generation.
 3. Save the settings. **Test connection** sends a short greeting request through the selected connection. This test may incur provider charges and does not consume the room turn budget. It sends participant roles but no thread history or shared objective.
-4. Send a question, parallel consultation, relay, or agent discussion. All three participants may use different providers, or independent instances of the same provider/model.
+4. Send a question, parallel consultation, relay, or agent discussion. Active participants may use different providers, or independent instances of the same provider/model.
 
 For **Ollama**, start Ollama on your machine and install a model in it. Select **Ollama (local)**, use `http://127.0.0.1:11434`, and load/select the installed model. No cloud API key is needed. The adapter accepts loopback servers only.
 
@@ -102,13 +104,13 @@ Provider keys remain in the service environment. They are absent from room recor
 
 - **Directed:** select one participant and disable synthesis. Its answer is attributed to it; other agents remain observers. **Reply to AI B**, for example, selects B and preserves the exact reply target.
 - **Parallel:** select multiple participants. They receive the same initial context and answer independently. Choose all/any/quorum and optionally a separate synthesizer.
-- **Relay:** choose **Automatic relay** in the composer and edit the ordered steps. The default is A → C → B → A. Each completed answer goes to the next participant; the final answer returns to you. Failure or refusal blocks advancement. Pause holds new hops, and Stop cancels remaining hops. The deadline applies to each hop.
-- **Agent discussion:** select a coordinator, peer-round limit, and turn allowance. The coordinator can ask either peer or both concurrently, choose all/any/quorum, follow up to a specific answer, then return a final result. Decisions, peer answers, correction attempts, and explicit retries all consume the allowance. The default reserves 12 turns and allows 3 peer rounds; unused turns are released when finished or stopped. A round deadline covers the queue and generation time for that decision or peer set. **Stop discussion** cancels only that discussion; room controls still apply to all work.
+- **Relay:** choose **Automatic relay** in the composer and edit the ordered steps. With the initial three participants the default is A → C → B → A; it adapts to other active rosters. Each completed answer goes to the next participant; the final answer returns to you. Failure or refusal blocks advancement. Pause holds new hops, and Stop cancels remaining hops. The deadline applies to each hop.
+- **Agent discussion:** select a coordinator, peer-round limit, and turn allowance. The coordinator can ask one or more permitted active peers concurrently, choose all/any/quorum, follow up to a specific answer, then return a final result. A single-participant coordinator may finish without peer requests. Decisions, peer answers, correction attempts, and explicit retries all consume the allowance. The default reserves 12 turns and allows 3 peer rounds; unused turns are released when finished or stopped. A round deadline covers the queue and generation time for that decision or peer set. **Stop discussion** cancels only that discussion; room controls still apply to all work.
 - **Update:** share information with no new generation.
 
 A discussion keeps its submitted objective, roles, and base context frozen. Later updates do not silently replace that context. All/any/quorum closure records the exact included peer answers. Late answers remain separate and do not rewrite the coordinator’s continuation; unfinished late respondents are cancelled when the coordinator finishes. The coordinator may finish without asking peers when the task or allowance calls for it. Exceeding a limit produces a blocked state rather than an invented final answer.
 
-Participant and workspace settings cannot be edited while queued/running work, a blocked relay, or an unfinished discussion remains. Stop pending work first. Previously recorded invocation snapshots retain their original provider, model, and role. Explicit retries retain the original snapshot too; send a new question to use a changed model or role.
+Participant and workspace settings cannot be edited while queued/running work, a blocked relay, an unfinished discussion, or a connection probe remains. Finish or stop pending work first. Previously recorded invocation snapshots retain their original provider, model, role, and objective. Explicit retries retain the original bindings too; send a new question to use revised settings. If a participant required by a failed workflow has been deactivated, reactivate it before retrying.
 
 ### Settings and workspace management
 
@@ -116,9 +118,11 @@ Click **Settings** in the header to open the dedicated page; `http://127.0.0.1:4
 
 - **Preferences:** choose a theme and save defaults for new workspace turn limits, response deadlines, all/any/quorum collection, synthesis, discussion peer rounds, and discussion turn allowances. Theme stays in this browser; conversation defaults are stored in SQLite and shared by views of the same service. Existing workspaces, active work, and open composers keep their values. Visiting Settings preserves the open composer draft.
 - **Workspace:** edit the selected workspace's name, shared objective, and turn limit. Finish or stop pending work first. The limit cannot be below turns already used. Historical invocation objectives and participant bindings remain recorded; new requests use the revised objective.
-- **Participants & connections:** configure each participant's role, provider/model, output limit, and timeout, or test its saved connection. API credentials remain in the service environment/`.env`; Settings displays their availability without receiving key values.
+- **Participants & connections:** add a participant, deactivate/reactivate an existing identity, inspect configuration history, or configure its role, provider/model, output limit, and timeout. New participants start in simulation; connection tests require an active participant. Keep at least one active participant. The eight-identity limit includes inactive participants, whose messages, settings, usage, and history remain available. Names may repeat; the UI adds a roster number to distinguish duplicate names. API credentials remain in the service environment/`.env`; Settings displays their availability without receiving key values.
 - **Delete workspace:** use the trash button beside its sidebar entry or the action at the end of Settings, then confirm the named workspace. This removes its participants, threads, messages, requests, attempts, snapshots, workflows, and local activity. Active generations and connection probes are aborted. Other workspaces remain usable. Deleting the final workspace leaves an empty app, including after restart; **Create workspace** starts a new one.
 - **Delete thread:** use its sidebar trash button and confirm. Its messages, attempts, response sets, relays, and discussions are removed. Stored copies of its messages are also removed from surviving context snapshots. Pending work using that context is cancelled, unused reservations are released, and consumed turns remain counted. Surviving completed answers remain in their threads; a redaction notice identifies historical context changes. Attempts with redacted context cannot be retried; ask a new question instead.
+
+Roster changes update other open views. An open composer keeps its draft, removes inactive recipients and relay steps, and adjusts invalid coordinator, synthesis, or quorum choices. Added/reactivated participants remain observers until explicitly selected. Deactivation prevents new generations; it does not hide room-visible messages or remove historical context. New edits record full configurations from v0.5.0 onward. Older workspaces recover configurations present in their snapshots and current settings; previously unrecorded unused edits cannot be reconstructed.
 
 Deletion is permanent within the app and updates other open views. It is logical deletion from active records, not a promise of forensic disk erasure. It cannot retract provider submissions, exported transcripts, external backups, or text already incorporated into answers in another thread. Minimal deleted-command UUIDs remain to reject delayed replay; they retain no message text or command hash. Export first if you need a transcript.
 
@@ -163,7 +167,7 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-The v0.4.1 suite includes 99 engine/service/provider-protocol tests and 12 Chromium UI tests, verified under both Node 26.10.0 and 24.19.0. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
+The v0.5.0 suite includes 116 engine/service/provider-protocol tests and 17 Chromium UI tests, verified under both Node 26.10.0 and 24.19.0. Coverage includes variable rosters, activation, configuration history, frozen retry bindings, independent duplicate names, cross-view drafts, and persistence/restart. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
 
 To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. Use `[simulate:follow-up]` in an agent discussion to demonstrate a second round targeting the first peer’s exact answer. These markers belong to simulation and have no special behavior in live providers.
 
@@ -171,11 +175,11 @@ To exercise failure handling in simulation, include `[simulate:fail]`, `[simulat
 
 The rest of this README specifies the full target design. The checked TODO items at the end record completed work; unchecked items remain planned.
 
-The v0.4.1 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each room currently has three participants; their names, roles, providers, and models are editable.
+The v0.5.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each workspace has 1–8 participant identities, including inactive identities; at least one stays active. Their names, roles, providers, and models are editable. The service runs at most four generations concurrently and one per participant.
 
 All messages are room-visible. All/any/quorum are the implemented collection policies. Timeout cancels unfinished work for the affected request and pauses the room; deadlines continue while paused. Each provider also has a connection timeout. Reported usage is stored per attempt; monetary cost estimates and enforced token/cost budgets are not implemented.
 
-Signed-in browser-session transport, arbitrary roster sizes/activation, unrestricted agent send types, nested peer delegation, assigned cross-review rounds, conference speaking queues, attachments, private threads, summaries, imports, backup tools, and installers remain planned. Remote acceptance/reconciliation is incomplete. Provider/network failures are never automatically retried. A confirmed completed but invalid coordinator action can receive one new correction invocation within the reserved allowance; this may incur charges. Explicit retries may also incur another charge if the first request reached the provider. Stop aborts the local request, but a provider may continue processing or billing a request it already accepted.
+Signed-in browser-session transport, rosters above eight identities, participant removal, membership changes during pending workflows, unrestricted agent send types, nested peer delegation, assigned cross-review rounds, conference speaking queues, attachments, private threads, summaries, imports, backup tools, and installers remain planned. Remote acceptance/reconciliation is incomplete. Provider/network failures are never automatically retried. A confirmed completed but invalid coordinator action can receive one new correction invocation within the reserved allowance; this may incur charges. Explicit retries may also incur another charge if the first request reached the provider. Stop aborts the local request, but a provider may continue processing or billing a request it already accepted.
 
 Initial limits are 12,000 characters per command, 20,000 per provider answer, and 64,000 per context snapshot. Oversized contexts are rejected explicitly; history is not silently truncated. The persistence layer is a transactional room-document store for a single service, with a separate SQLite writer lease. Multi-worker scheduling and large-history pagination are planned.
 
@@ -412,7 +416,7 @@ Implement domain contracts and a deterministic fake provider before live integra
 
 Contributions should explain the behavior changed, its reason, relevant failure cases, and validation. New routing or recovery behavior requires tests of its observable guarantees. No feature is complete solely because its happy path works once.
 
-TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
+TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. v0.5.0 adds variable participant rosters, activation, and configuration history. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
 
 ## Delivery milestones
 
@@ -427,7 +431,7 @@ TypeScript, React, Node 24, SQLite, and local browser operation were selected fo
 
 ## Complete implementation TODO checklist
 
-This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.4.1 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
+This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.5.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
 
 ### 1. Product scope and decisions
 
@@ -458,10 +462,10 @@ This is the complete implementation checklist for the scope described above. Che
 
 - [ ] Implement stable workspace, room, participant, and thread identities.
 - [x] Support multiple independent participants using the same provider/model.
-- [ ] Store participant role and model configuration revisions.
-- [ ] Preserve attribution when participants are renamed or deactivated.
+- [x] Store participant role and model configuration revisions.
+- [x] Preserve attribution when participants are renamed or deactivated.
 - [ ] Implement room objectives and versioned human instructions.
-- [ ] Implement room membership and participant activation rules.
+- [x] Implement room membership and participant activation rules.
 - [x] Validate recipient identity without relying on display-name uniqueness.
 - [ ] Record membership changes during active rounds and define their effect on obligations.
 - [ ] Implement explicit room lifecycle and completion reasons.
@@ -593,7 +597,7 @@ This is the complete implementation checklist for the scope described above. Che
 - [ ] Implement room creation, selection, search, archive, and deletion.
 - [x] Implement the three-column room/thread, conversation, and agent-details layout.
 - [ ] Add panel resizing and responsive collapse behavior.
-- [ ] Add agent configuration, role editing, activation, and model selection.
+- [x] Add agent configuration, role editing, activation, and model selection.
 - [x] Build a composer with explicit recipients, visibility, and response policy.
 - [x] Implement message reply, thread creation, and linked-source navigation.
 - [ ] Show author, status, context revision, and artifact versions on messages.
@@ -750,7 +754,7 @@ This is the complete implementation checklist for the scope described above. Che
 - [ ] Verify selected third-party OpenAI-compatible servers with real generation requests.
 - [ ] Add automatic provider-specific reconciliation for uncertain accepted requests before considering automatic retries.
 - [ ] Add OS-backed credential storage and a graphical credential management flow.
-- [ ] Preserve complete participant configuration revision history, including revisions never used in an invocation.
+- [x] Preserve complete participant configuration revision history, including revisions never used in an invocation (new edits from v0.5.0; recover known legacy configurations).
 - [ ] Extend model catalogs with provider-specific pagination and text-generation capability filtering.
 - [ ] Implement the separate signed-in browser-session transport and verify supported website/model combinations.
 
@@ -815,3 +819,25 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Allow the pinned esbuild installation hook for the npm version bundled with Node 26.10.
 - [x] Verify installation, type checking, formatting, the production build, SQLite persistence/recovery, provider fixtures, and Chromium workflows under Node 26.10.0.
 - [x] Check Node 24.19.0 and 26.10.0 across Linux, Windows, and macOS in CI, with Chromium coverage for both runtimes on Linux.
+
+### 25. v0.5.0 participant rosters
+
+- [x] Create workspaces with 1–8 participants while retaining the three-participant welcome workspace.
+- [x] Assign participant identities on the server and support independent instances with duplicate display names.
+- [x] Add participants in Settings without invoking a provider; start new identities in simulation.
+- [x] Deactivate/reactivate participants while retaining messages, settings, revisions, and consumed usage.
+- [x] Keep at least one active participant and count inactive identities toward the eight-participant limit.
+- [x] Validate strict roster commands, workspace scope, sessions, Host, and Origin before mutation.
+- [x] Block roster/configuration edits during pending jobs, unfinished or blocked workflows, and workspace connection probes.
+- [x] Restrict new recipients, synthesizers, relay steps, and coordinators to active participants.
+- [x] Freeze discussion peer grants and prevent model actions from reaching inactive or newly added participants.
+- [x] Reject retries requiring inactive participants without consuming turns, and preserve original retry model/objective/roster bindings.
+- [x] Cancel an unavailable queued participant defensively without invocation or consumed turns.
+- [x] Record every new configuration revision atomically, including unused edits and activation changes.
+- [x] Recover only known legacy configurations and disclose unknown edit times without inventing missing history.
+- [x] Preserve historical author labels in transcripts, source contexts, response sets, workflows, and Markdown exports.
+- [x] Distinguish duplicate names in recipient controls and answer labels while routing exclusively by identity.
+- [x] Preserve open drafts across roster changes, prune inactive recipients/relay steps, repair quorum choices, and keep additions as observers.
+- [x] Verify single-participant, larger-roster, cross-view, narrow-layout, restart, and active-routing flows under Node 24 and 26.
+- [ ] Support rosters above eight identities with explicit capacity, context-size, and interface policies.
+- [ ] Add participant removal with documented historical attribution, workflow, and retention behavior.

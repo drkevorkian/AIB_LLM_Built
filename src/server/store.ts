@@ -160,6 +160,16 @@ export class RoomStore {
     // v0.2 adds optional fields; v0.1 records remain usable without rewriting history.
     room.relays ??= [];
     room.discussions ??= [];
+    if (!room.agentRevisions) {
+      const seen = new Set<string>();
+      room.agentRevisions = [];
+      for (const agent of [...room.snapshots.flatMap((s) => s.agents), ...room.agents]) {
+        const key = `${agent.id}:${agent.configRevision ?? 0}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        room.agentRevisions.push({ agent: structuredClone(agent), recordedAt: null });
+      }
+    }
     return room;
   }
 }

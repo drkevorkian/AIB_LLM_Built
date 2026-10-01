@@ -7,6 +7,7 @@ import type {
   Room,
 } from '../shared/contracts.js';
 import { api } from './api.js';
+import { hasPendingWork, isAgentActive } from '../shared/contracts.js';
 
 export function AgentSettings({
   room,
@@ -33,10 +34,7 @@ export function AgentSettings({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
-  const pending =
-    room.jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
-    room.relays.some((r) => r.status === 'running' || r.status === 'blocked') ||
-    room.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status));
+  const pending = hasPendingWork(room);
   useEffect(() => {
     let current = true;
     void api
@@ -84,6 +82,12 @@ export function AgentSettings({
     <form className="room-form agent-settings" onSubmit={save}>
       {pending && (
         <p className="notice">Finish or stop pending work before saving participant settings.</p>
+      )}
+      {!room.agents.some((a) => a.id === agent.id && isAgentActive(a)) && (
+        <p className="notice">
+          This participant is inactive. You can edit its connection settings; reactivate it before
+          sending or testing.
+        </p>
       )}
       <div className="settings-grid">
         <label>
@@ -245,6 +249,7 @@ export function AgentSettings({
             busy ||
             pending ||
             !saved ||
+            !room.agents.some((a) => a.id === agent.id && isAgentActive(a)) ||
             (!provider?.configured && value.provider !== 'openai-compatible')
           }
           onClick={() => {

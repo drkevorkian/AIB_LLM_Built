@@ -23,16 +23,17 @@ test.beforeAll(async ({ playwright }) => {
   }
 });
 
-async function createRoom(page: Page) {
+async function createRoom(page: Page, participantCount = 3) {
   await page.goto('/');
   await page.getByRole('button', { name: 'New workspace', exact: true }).click();
   const title = `Conversation ${randomUUID().slice(0, 8)}`;
   await page.getByLabel('Workspace name').fill(title);
   await page.getByLabel('Shared objective').fill('Investigate the delivery sequence.');
+  await page.getByLabel('Participant count').fill(String(participantCount));
   await page.getByRole('button', { name: 'Create workspace', exact: true }).click();
   await expect(page.getByRole('heading', { name: title, exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Start a conversation.' })).toBeVisible();
-  await expect(page.locator('.agent-card')).toHaveCount(3);
+  await expect(page.locator('.agent-card')).toHaveCount(participantCount);
   await expect(page.getByLabel('Message', { exact: true })).toBeVisible();
   return title;
 }
@@ -800,4 +801,241 @@ test('deleting the final workspace leaves an empty app across a service restart 
     await stop();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('one and two participant workspaces send, synthesize, relay, and finish a coordinator discussion', async ({
+  page,
+}) => {
+  test.setTimeout(45000);
+  await createRoom(page, 2);
+  await page.getByLabel('Message', { exact: true }).fill('Compare two participant perspectives.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByText('SIMULATED SYNTHESIS', { exact: false })).toBeVisible({
+    timeout: 15000,
+  });
+  await expect(page.locator('.message.synthesis .badge.streaming')).toHaveCount(0);
+  await expect(page.locator('.message.answer')).toHaveCount(1);
+  await createRoom(page, 1);
+  await expect(page.getByLabel('AI A', { exact: true })).toBeChecked();
+  await expect(page.getByLabel('No separate synthesizer')).toBeDisabled();
+  await page.getByLabel('Message', { exact: true }).fill('Answer from this single participant.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.message.answer')).toHaveCount(1);
+  await expect(page.locator('.message.answer .badge.streaming')).toHaveCount(0);
+  await page.getByLabel('Message type').selectOption('relay');
+  await expect(page.getByLabel('Relay step 1').locator('option')).toHaveCount(1);
+  await expect(page.getByLabel('Relay step 1').locator('option')).toHaveText('AI A');
+  await expect(page.locator('.relay-editor select')).toHaveCount(1);
+  await page.getByLabel('Message', { exact: true }).fill('Run a single hop.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByLabel('Relay progress')).toContainText('completed', { timeout: 12000 });
+  await page.getByLabel('Message type').selectOption('discussion');
+  await page
+    .getByLabel('Message', { exact: true })
+    .fill('Finish without asking nonexistent peers.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByText('SIMULATED DISCUSSION RESULT', { exact: false })).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(page.getByLabel('Discussion progress')).toContainText('completed');
+  await expect(page.locator('.message.synthesis')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Deactivate AI A', exact: true })).toBeDisabled();
+});
+
+test('larger rosters preserve drafts, remove inactive recipients, clamp quorum, keep added participants optional, and retain activation history', async ({
+  page,
+}) => {
+  test.setTimeout(45000);
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await createRoom(page, 5);
+  await page.getByLabel('AI A synthesizes').uncheck();
+  await page.getByLabel('Response policy').selectOption('quorum');
+  await page.getByLabel('Required answers').fill('4');
+  await page.getByLabel('Message', { exact: true }).fill('Keep this draft during roster changes.');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Add participant', exact: true }).click();
+  await page.getByLabel('New participant name').fill('Added reviewer');
+  await page.getByLabel('New participant role').fill('Provide another independent viewpoint.');
+  await page.getByRole('button', { name: 'Create participant', exact: true }).click();
+  await expect(page.locator('.settings-participant')).toHaveCount(6);
+  await expect(page.getByRole('status')).toContainText('Participant added in simulation.');
+  await page.getByRole('button', { name: 'Deactivate AI B', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Reactivate AI B', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+  await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+    'Keep this draft during roster changes.',
+  );
+  await expect(page.getByLabel('AI B', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('AI C', { exact: true })).toBeChecked();
+  await expect(page.getByLabel('Added reviewer', { exact: true })).not.toBeChecked();
+  await expect(page.getByLabel('Required answers')).toHaveValue('3');
+  await expect(page.locator('.composer')).toContainText('Participants changed.');
+  await expect(page.locator('.agent-card')).toHaveCount(5);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Deactivate AI C', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Add participant', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+  await expect(page.locator('.response-set')).toContainText('3 / 3 received', { timeout: 15000 });
+  await expect(page.locator('.message.answer')).toHaveCount(3);
+  await expect(page.locator('.message.synthesis')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Reactivate AI B', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Deactivate AI B', exact: true })).toBeEnabled();
+  const history = page
+    .locator('.settings-participant')
+    .filter({ has: page.getByRole('button', { name: 'Configure AI B', exact: true }) });
+  await history.locator('summary').click();
+  await expect(history).toContainText('Revision 1 · Inactive');
+  await expect(history).toContainText('Revision 2 · Active');
+  await page.reload();
+  await expect(page.locator('.settings-participant')).toHaveCount(6);
+  await expect(page.getByRole('button', { name: 'Deactivate AI B', exact: true })).toBeEnabled();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('button', { name: 'Add participant', exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/roster-mobile.png', fullPage: true });
+});
+
+test('renamed and deactivated participants retain historical labels, directed reply identity, and exported attribution', async ({
+  page,
+}) => {
+  test.setTimeout(45000);
+  const title = await createRoom(page);
+  await page.getByLabel('AI C', { exact: true }).uncheck();
+  await page.getByLabel('AI A synthesizes').uncheck();
+  await page
+    .getByLabel('Message', { exact: true })
+    .fill('Save an answer with its original author.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByRole('article', { name: 'AI B answer', exact: true })).toBeVisible();
+  await expect(page.locator('.message.answer .badge.streaming')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Configure AI B', exact: true }).click();
+  await page.getByLabel('Participant name').fill('Renamed reviewer');
+  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+  await expect(page.locator('dialog')).toContainText('Settings saved.');
+  await page.getByRole('button', { name: 'Close dialog' }).click();
+  await page.getByRole('button', { name: 'Deactivate Renamed reviewer', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Reactivate Renamed reviewer', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+  const original = page.getByRole('article', { name: 'AI B answer', exact: true });
+  await expect(original).toBeVisible();
+  await expect(
+    original.getByRole('button', { name: 'Reply to Renamed reviewer', exact: true }),
+  ).toBeDisabled();
+  await original.getByRole('button', { name: 'Inspect context' }).click();
+  await expect(page.locator('dialog')).toContainText('AI B');
+  await page.getByRole('button', { name: 'Close dialog' }).click();
+  await page.getByRole('button', { name: 'Manage inactive participants', exact: true }).click();
+  await page.getByRole('button', { name: 'Reactivate Renamed reviewer', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Deactivate Renamed reviewer', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+  await original.getByRole('button', { name: 'Reply to Renamed reviewer', exact: true }).click();
+  await expect(page.getByLabel('Renamed reviewer', { exact: true })).toBeChecked();
+  await page
+    .getByLabel('Message', { exact: true })
+    .fill('Follow up to the same stable participant.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(
+    page.getByRole('article', { name: 'Renamed reviewer answer', exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('.message.answer .badge.streaming')).toHaveCount(0);
+  await expect(original).toBeVisible();
+  const { token } = (await (await page.request.get('/api/session')).json()) as { token: string };
+  const rooms = (await (
+    await page.request.get('/api/rooms', { headers: { 'X-AIB-Token': token } })
+  ).json()) as { id: string; title: string }[];
+  const room = rooms.find((r) => r.title === title)!;
+  const exported = await (
+    await page.request.get('/api/rooms/' + room.id + '/export', {
+      headers: { 'X-AIB-Token': token },
+    })
+  ).text();
+  expect(exported).toContain('## AI B · answer');
+  expect(exported).toContain('## Renamed reviewer · answer');
+  await page.reload();
+  await expect(page.getByRole('article', { name: 'AI B answer', exact: true })).toBeVisible();
+});
+
+test('roster changes in another open view clear unavailable reply targets while preserving drafts and explicit selection', async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(30000);
+  const title = await createRoom(page);
+  await page.getByLabel('AI C', { exact: true }).uncheck();
+  await page.getByLabel('AI A synthesizes').uncheck();
+  await page.getByLabel('Message', { exact: true }).fill('Establish a reply target.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.message.answer .badge.streaming')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reply to AI B', exact: true }).click();
+  await page
+    .getByLabel('Message', { exact: true })
+    .fill('Preserve this draft across another view.');
+  const other = await context.newPage();
+  try {
+    await other.goto('/');
+    await other.getByRole('button', { name: title + ' Open conversation', exact: true }).click();
+    await other.getByRole('button', { name: 'Settings', exact: true }).click();
+    await other.getByRole('button', { name: 'Deactivate AI B', exact: true }).click();
+    await expect(page.getByLabel('AI B', { exact: true })).toHaveCount(0);
+    await expect(page.locator('.reply-indicator')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+      'Preserve this draft across another view.',
+    );
+    await other.getByRole('button', { name: 'Reactivate AI B', exact: true }).click();
+    await expect(page.getByLabel('AI B', { exact: true })).not.toBeChecked();
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await page.getByLabel('AI B', { exact: true }).check();
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.locator('.message.answer')).toHaveCount(2);
+    await expect(page.locator('.message.answer .badge.streaming')).toHaveCount(0);
+  } finally {
+    await other.close();
+  }
+});
+
+test('duplicate participant names have distinct selectable labels and route only to the chosen identity', async ({
+  page,
+}) => {
+  test.setTimeout(30000);
+  const title = await createRoom(page, 1);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Add participant', exact: true }).click();
+  await page.getByLabel('New participant name').fill('AI A');
+  await page.getByLabel('New participant role').fill('Second instance with independent context.');
+  await page.getByRole('button', { name: 'Create participant', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Configure AI A · #2', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+  await page.getByLabel('AI A · #1', { exact: true }).uncheck();
+  await page.getByLabel('AI A · #2', { exact: true }).check();
+  await page.getByLabel('AI A · #1 synthesizes').uncheck();
+  await page.getByLabel('Message', { exact: true }).fill('Ask only the second instance.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByRole('article', { name: 'AI A · #2 answer', exact: true })).toBeVisible();
+  await expect(page.locator('.message.answer .badge.streaming')).toHaveCount(0);
+  await expect(page.locator('.message.answer')).toHaveCount(1);
+  const { token } = (await (await page.request.get('/api/session')).json()) as { token: string };
+  const headers = { 'X-AIB-Token': token };
+  const rooms = (await (await page.request.get('/api/rooms', { headers })).json()) as {
+    id: string;
+    title: string;
+  }[];
+  const roomId = rooms.find((room) => room.title === title)!.id;
+  const room = (await (await page.request.get('/api/rooms/' + roomId, { headers })).json()) as {
+    agents: { id: string }[];
+    jobs: { agentId: string }[];
+    turnsUsed: number;
+  };
+  expect(room.jobs.map((job) => job.agentId)).toEqual([room.agents[1]!.id]);
+  expect(room.turnsUsed).toBe(1);
 });

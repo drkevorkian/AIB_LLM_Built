@@ -8,6 +8,7 @@ import type {
   ProviderStatus,
   AppSettings,
   WorkspaceSettingsInput,
+  AddAgentInput,
 } from '../shared/contracts.js';
 
 let tokenPromise: Promise<string> | null = null;
@@ -82,6 +83,17 @@ export const api = {
   configureAgent: async (id: string, input: AgentSettingsInput) => {
     await request(`/rooms/${id}/agents`, { method: 'POST', body: JSON.stringify(input) });
   },
+  addAgent: async (id: string, input: AddAgentInput) =>
+    (
+      await request(`/rooms/${id}/participants`, { method: 'POST', body: JSON.stringify(input) })
+    ).json() as Promise<Room>,
+  setAgentActive: async (id: string, agentId: string, active: boolean) =>
+    (
+      await request(`/rooms/${id}/participants/${agentId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ active }),
+      })
+    ).json() as Promise<Room>,
   testConnection: async (id: string, agentId: string) =>
     (
       await request(`/rooms/${id}/connection-test`, {

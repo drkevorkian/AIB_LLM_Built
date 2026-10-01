@@ -14,6 +14,12 @@ import type {
 import { api, ApiError, watch } from './api.js';
 import { AgentSettings } from './AgentSettings.js';
 import { SettingsPage } from './SettingsPage.js';
+import {
+  agentAtSnapshot,
+  agentLabel,
+  isAgentActive,
+  maxParticipants,
+} from '../shared/contracts.js';
 
 type DeleteTarget =
   | { kind: 'workspace'; id: string; title: string }
@@ -72,8 +78,8 @@ function Badge({ value }: { value: string }) {
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : 'The operation failed.';
 }
-function nameOf(room: Room, id: string) {
-  return id === 'human' ? 'You' : (room.agents.find((a) => a.id === id)?.name ?? id);
+function nameOf(room: Room, id: string, snapshotId?: string | null) {
+  return id === 'human' ? 'You' : agentLabel(room, id, snapshotId);
 }
 function time(value: string) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -186,6 +192,12 @@ export function App() {
     if (!room) return;
     if (threadId && !room.threads.some((t) => t.id === threadId)) setThreadId(null);
     if (reply && !room.messages.some((m) => m.id === reply.id)) setReply(null);
+    if (
+      reply &&
+      reply.authorId !== 'human' &&
+      !room.agents.some((a) => a.id === reply.authorId && isAgentActive(a))
+    )
+      setReply(null);
     if (inspect && !room.messages.some((m) => m.id === inspect.id)) setInspect(null);
   }, [room, threadId, reply, inspect]);
   useEffect(() => {
@@ -260,7 +272,8 @@ export function App() {
   const shown = room?.messages.filter((m) => !threadId || m.threadId === threadId) ?? [];
   const activeCount = room?.jobs.filter((j) => j.status === 'running').length ?? 0;
   const queueCount = room?.jobs.filter((j) => j.status === 'queued').length ?? 0;
-  const liveCount = room?.agents.filter((a) => a.provider !== 'simulated').length ?? 0;
+  const liveCount =
+    room?.agents.filter((a) => isAgentActive(a) && a.provider !== 'simulated').length ?? 0;
   const reservedTurns = room
     ? room.jobs.filter((j) => j.status === 'queued' && !j.discussionId).length +
       room.requests.filter((r) => r.status === 'collecting' && r.synthesisAgentId).length +
@@ -290,7 +303,7 @@ export function App() {
           {liveCount
             ? `${liveCount} LIVE AGENT${liveCount === 1 ? '' : 'S'} CONFIGURED`
             : 'SIMULATION'}
-          <span className="version">v0.4.1</span>
+          <span className="version">v0.5.0</span>
         </div>
         <div className="header-actions">
           <span className={`connection ${connected ? 'online' : ''}`}>
@@ -627,9 +640,9 @@ export function App() {
         <aside className="activity-panel" hidden={settingsPage}>
           <div className="section-heading">
             <h2>PARTICIPANTS</h2>
-            <span>{room?.agents.length ?? 0}</span>
+            <span>{room?.agents.filter(isAgentActive).length ?? 0} active</span>
           </div>
-          {room?.agents.map((agent) => (
+          {room?.agents.filter(isAgentActive).map((agent) => (
             <AgentCard
               key={agent.id}
               agent={agent}
@@ -645,6 +658,11 @@ export function App() {
               }}
             />
           ))}
+          {room?.agents.some((agent) => !isAgentActive(agent)) && (
+            <button className="quiet" onClick={() => setSettingsPage(true)}>
+              Manage inactive participants
+            </button>
+          )}
           {room && (
             <div className="budget-card">
               <div className="section-heading">
@@ -737,7 +755,7 @@ export function App() {
       )}
       {inspect && room && (
         <Modal
-          title={`Message #${inspect.sequence} · ${nameOf(room, inspect.authorId)}`}
+          title={`Message #${inspect.sequence} · ${nameOf(room, inspect.authorId, inspect.snapshotId)}`}
           onClose={() => setInspect(null)}
         >
           <p className="muted">Message ID: {inspect.id}</p>
@@ -755,7 +773,7 @@ export function App() {
                   <p>
                     Coordinator chose {j.agentAction.kind}
                     {j.agentAction.kind === 'ask'
-                      ? ` · ${j.agentAction.policy} · to ${j.agentAction.recipientIds.map((id) => nameOf(room, id)).join(', ')}`
+                      ? ` · ${j.agentAction.policy} · to ${j.agentAction.recipientIds.map((id) => nameOf(room, id, j.snapshotId)).join(', ')}`
                       : ''}
                     .
                   </p>
@@ -775,7 +793,7 @@ export function App() {
         </Modal>
       )}
       {settings && room && (
-        <Modal title={`Configure ${settings.name}`} onClose={() => setSettings(null)}>
+        <Modal title={`Configure ${nameOf(room, settings.id)}`} onClose={() => setSettings(null)}>
           <AgentSettings room={room} agent={settings} onSaved={() => setTick((v) => v + 1)} />
         </Modal>
       )}
@@ -795,21 +813,21 @@ function MessageCard({
   onInspect: () => void;
 }) {
   const agent = room.agents.find((a) => a.id === m.authorId);
-  const binding =
-    room.snapshots.find((s) => s.id === m.snapshotId)?.agents.find((a) => a.id === m.authorId) ??
-    agent;
+  const binding = agentAtSnapshot(room, m.authorId, m.snapshotId);
   const prior = room.messages.find((p) => p.id === m.replyTo);
   const attempt = room.jobs.find((j) => j.messageId === m.id);
   const response = room.requests.find((r) => r.id === attempt?.requestId);
   return (
     <article
       className={`message ${agent?.color ?? 'human'} ${m.type}`}
-      aria-label={`${nameOf(room, m.authorId)} ${m.type}`}
+      aria-label={`${nameOf(room, m.authorId, m.snapshotId)} ${m.type}`}
     >
-      <div className={`avatar ${agent?.color ?? 'human'}`}>{agent ? agent.name.at(-1) : 'Y'}</div>
+      <div className={`avatar ${agent?.color ?? 'human'}`}>
+        {binding ? binding.name.at(-1) : 'Y'}
+      </div>
       <div className="message-content">
         <div className="message-meta">
-          <strong>{nameOf(room, m.authorId)}</strong>
+          <strong>{nameOf(room, m.authorId, m.snapshotId)}</strong>
           <span>
             {m.type === 'synthesis'
               ? 'SYNTHESIS'
@@ -825,7 +843,7 @@ function MessageCard({
         <div className="address-line">
           To{' '}
           {m.recipientIds.length
-            ? m.recipientIds.map((id) => nameOf(room, id)).join(', ')
+            ? m.recipientIds.map((id) => nameOf(room, id, m.snapshotId)).join(', ')
             : 'room observers'}
           <span> · room-visible</span>
           {prior && <span> · replying to #{prior.sequence}</span>}
@@ -848,8 +866,16 @@ function MessageCard({
           {m.status === 'streaming' && <span className="stream-cursor" />}
         </p>
         <div className="message-actions">
-          <button onClick={onReply} disabled={m.status !== 'complete'}>
-            Reply to {agent?.name ?? 'message'}
+          <button
+            onClick={onReply}
+            disabled={m.status !== 'complete' || (agent && !isAgentActive(agent))}
+            title={
+              agent && !isAgentActive(agent)
+                ? 'Reactivate this participant in Settings to reply.'
+                : undefined
+            }
+          >
+            Reply to {agent ? nameOf(room, agent.id) : 'message'}
           </button>
           <button onClick={onInspect}>
             <Glyph kind="inspect" size={12} />
@@ -863,6 +889,7 @@ function MessageCard({
 }
 
 function RelayCard({ relay, room }: { relay: Relay; room: Room }) {
+  const snapshotId = room.messages.find((m) => m.id === relay.messageId)?.snapshotId;
   return (
     <div className="response-set relay-status" aria-label="Relay progress">
       <div>
@@ -872,7 +899,7 @@ function RelayCard({ relay, room }: { relay: Relay; room: Room }) {
         </strong>
         <Badge value={relay.status} />
       </div>
-      <p>{relay.order.map((id) => nameOf(room, id)).join(' → ')}</p>
+      <p>{relay.order.map((id) => nameOf(room, id, snapshotId)).join(' → ')}</p>
       <small className="muted">
         Each completed answer is delivered to the next selected agent. The final answer returns to
         you.
@@ -897,7 +924,10 @@ function DiscussionCard({
     <div className="response-set discussion-status" aria-label="Discussion progress">
       <div>
         <span className="collection-label">AGENT DISCUSSION</span>
-        <strong>{nameOf(room, d.leaderId)} coordinates</strong>
+        <strong>
+          {nameOf(room, d.leaderId, room.messages.find((m) => m.id === d.messageId)?.snapshotId)}{' '}
+          coordinates
+        </strong>
         <Badge value={d.status} />
       </div>
       <p>
@@ -951,9 +981,9 @@ function ResponseSet({ request, room }: { request: Request; room: Room }) {
             ? 'Use the first complete answer; remaining agents continue'
             : `Wait for ${request.quorum} complete answers`}
         {request.synthesisAgentId
-          ? ` · then ${nameOf(room, request.synthesisAgentId)} synthesizes`
+          ? ` · then ${nameOf(room, request.synthesisAgentId, request.snapshotId)} synthesizes`
           : request.phase === 'consultation'
-            ? ` · then ${nameOf(room, room.discussions.find((d) => d.id === request.discussionId)!.leaderId)} continues`
+            ? ` · then ${nameOf(room, room.discussions.find((d) => d.id === request.discussionId)!.leaderId, request.snapshotId)} continues`
             : ' · preserve individual answers'}
       </p>
       <div className="respondents">
@@ -963,7 +993,7 @@ function ResponseSet({ request, room }: { request: Request; room: Room }) {
             .at(-1);
           return (
             <span key={id} className={job?.status === 'completed' ? 'received' : ''}>
-              {nameOf(room, id)}
+              {nameOf(room, id, request.snapshotId)}
               <small>{job?.status}</small>
             </span>
           );
@@ -1010,7 +1040,7 @@ function AgentCard({
       <div className="agent-top">
         <span className={`avatar ${agent.color}`}>{agent.name.at(-1)}</span>
         <div>
-          <strong>{agent.name}</strong>
+          <strong>{nameOf(room, agent.id)}</strong>
           <small>
             {agent.provider} / {agent.model}
           </small>
@@ -1021,7 +1051,7 @@ function AgentCard({
       </div>
       <p>{agent.role}</p>
       <button className="configure-agent" onClick={onConfigure}>
-        Configure {agent.name}
+        Configure {nameOf(room, agent.id)}
       </button>
       {latest?.error && (
         <div className="job-error">
@@ -1059,44 +1089,74 @@ function Composer({
   onSent: (threadId: string) => void;
   onError: (error: string) => void;
 }) {
+  const activeAgents = room.agents.filter(isAgentActive);
   const [body, setBody] = useState('');
-  const [recipients, setRecipients] = useState(room.agents.slice(1).map((a) => a.id));
+  const [recipients, setRecipients] = useState(() =>
+    (activeAgents.length > 1 ? activeAgents.slice(1) : activeAgents).map((a) => a.id),
+  );
   const [type, setType] = useState<'question' | 'update' | 'relay' | 'discussion'>('question');
-  const [leaderId, setLeaderId] = useState(room.agents[0]!.id);
+  const [leaderId, setLeaderId] = useState(activeAgents[0]?.id ?? '');
   const [maxRounds, setMaxRounds] = useState(defaults.defaultDiscussionRounds);
   const [maxTurns, setMaxTurns] = useState(defaults.defaultDiscussionTurns);
-  const [relayOrder, setRelayOrder] = useState([
-    room.agents[0]!.id,
-    room.agents[2]!.id,
-    room.agents[1]!.id,
-    room.agents[0]!.id,
-  ]);
+  const [relayOrder, setRelayOrder] = useState(() =>
+    activeAgents.length > 1
+      ? [
+          activeAgents[0]!.id,
+          ...activeAgents
+            .slice(1)
+            .toReversed()
+            .map((a) => a.id),
+          activeAgents[0]!.id,
+        ]
+      : activeAgents.map((a) => a.id),
+  );
   const [policy, setPolicy] = useState<SendInput['policy']>(defaults.defaultPolicy);
   const [quorum, setQuorum] = useState(1);
   const [synthesis, setSynthesis] = useState(defaults.defaultSynthesis);
+  const [synthesizerId, setSynthesizerId] = useState(
+    activeAgents.length > 1 ? activeAgents[0]!.id : '',
+  );
   const [sending, setSending] = useState(false);
   const [deadlineSeconds, setDeadlineSeconds] = useState(defaults.defaultDeadlineSeconds);
   const clientId = useRef<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const rosterKey = activeAgents.map((a) => a.id).join(',');
+  const previousRoster = useRef(rosterKey);
+  const [rosterChanged, setRosterChanged] = useState(false);
+  useEffect(() => {
+    if (previousRoster.current === rosterKey) return;
+    previousRoster.current = rosterKey;
+    const ids = new Set(activeAgents.map((a) => a.id));
+    setRecipients((prior) => prior.filter((id) => ids.has(id)));
+    setRelayOrder((prior) => prior.filter((id) => ids.has(id)));
+    setLeaderId((prior) => (ids.has(prior) ? prior : (activeAgents[0]?.id ?? '')));
+    setSynthesizerId((prior) => (ids.has(prior) ? prior : ''));
+    setQuorum((prior) =>
+      Math.min(prior, Math.max(1, recipients.filter((id) => ids.has(id)).length)),
+    );
+    clientId.current = null;
+    setRosterChanged(true);
+  }, [rosterKey]);
   useEffect(() => {
     if (reply) {
-      if (room.agents.some((a) => a.id === reply.authorId)) setRecipients([reply.authorId]);
+      if (activeAgents.some((a) => a.id === reply.authorId)) setRecipients([reply.authorId]);
       setSynthesis(false);
       setType('question');
       clientId.current = null;
       textarea.current?.focus();
     }
   }, [reply]);
-  const synthesizer = room.agents.find((a) => !recipients.includes(a.id));
+  const synthesizer = activeAgents.find(
+    (a) => a.id === synthesizerId && !recipients.includes(a.id),
+  );
+  const synthesisCandidate = synthesizer ?? activeAgents.find((a) => !recipients.includes(a.id));
+  const invalidRouting =
+    (type === 'question' && !recipients.length) ||
+    (type === 'relay' && !relayOrder.length) ||
+    (type === 'discussion' && !leaderId);
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (
-      sending ||
-      !body.trim() ||
-      room.status === 'stopped' ||
-      (type === 'question' && !recipients.length)
-    )
-      return;
+    if (sending || !body.trim() || room.status === 'stopped' || invalidRouting) return;
     setSending(true);
     onError('');
     clientId.current ??= crypto.randomUUID();
@@ -1121,6 +1181,7 @@ function Composer({
         discussion: type === 'discussion' ? { maxRounds, maxTurns } : null,
       });
       setBody('');
+      setRosterChanged(false);
       clientId.current = null;
       onSent(result.threadId);
     } catch (e) {
@@ -1136,9 +1197,15 @@ function Composer({
         void send(e);
       }}
     >
+      {rosterChanged && (
+        <p className="notice">
+          Participants changed. Review recipients, coordinator, and relay steps before sending. Your
+          draft is preserved.
+        </p>
+      )}
       {reply && (
         <div className="reply-indicator">
-          Replying to {nameOf(room, reply.authorId)} · #{reply.sequence}
+          Replying to {nameOf(room, reply.authorId, reply.snapshotId)} · #{reply.sequence}
           <button type="button" onClick={onClearReply} aria-label="Cancel reply">
             <Glyph kind="close" size={14} />
           </button>
@@ -1147,7 +1214,7 @@ function Composer({
       {type !== 'relay' && type !== 'discussion' && (
         <div className="recipient-row">
           <span className="eyebrow">TO</span>
-          {room.agents.map((a) => (
+          {activeAgents.map((a) => (
             <label
               className={`recipient ${a.color} ${recipients.includes(a.id) ? 'checked' : ''}`}
               key={a.id}
@@ -1157,12 +1224,16 @@ function Composer({
                 checked={recipients.includes(a.id)}
                 onChange={() => {
                   clientId.current = null;
-                  setRecipients((prev) =>
-                    prev.includes(a.id) ? prev.filter((id) => id !== a.id) : [...prev, a.id],
+                  const next = recipients.includes(a.id)
+                    ? recipients.filter((id) => id !== a.id)
+                    : [...recipients, a.id];
+                  setRecipients(next);
+                  setSynthesizerId(
+                    activeAgents.find((agent) => !next.includes(agent.id))?.id ?? '',
                   );
                 }}
               />
-              <span>{a.name}</span>
+              <span>{nameOf(room, a.id)}</span>
             </label>
           ))}
           <span className="visibility-label">Visible to the room</span>
@@ -1180,9 +1251,9 @@ function Composer({
                 clientId.current = null;
               }}
             >
-              {room.agents.map((a) => (
+              {activeAgents.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name}
+                  {nameOf(room, a.id)}
                 </option>
               ))}
             </select>
@@ -1218,8 +1289,8 @@ function Composer({
             />
           </label>
           <p>
-            Allow {nameOf(room, leaderId)} to ask either peer, collect answers, and follow up. All
-            messages stay visible to you.
+            Allow {nameOf(room, leaderId)} to ask permitted active peers, collect answers, and
+            follow up. All messages stay visible to you.
           </p>
         </div>
       )}
@@ -1240,9 +1311,9 @@ function Composer({
                     clientId.current = null;
                   }}
                 >
-                  {room.agents.map((a) => (
+                  {activeAgents.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.name}
+                      {nameOf(room, a.id)}
                     </option>
                   ))}
                 </select>
@@ -1264,7 +1335,7 @@ function Composer({
             type="button"
             disabled={relayOrder.length >= 12}
             onClick={() => {
-              setRelayOrder((order) => [...order, room.agents[0]!.id]);
+              setRelayOrder((order) => [...order, activeAgents[0]!.id]);
               clientId.current = null;
             }}
           >
@@ -1360,13 +1431,19 @@ function Composer({
                 <input
                   type="checkbox"
                   checked={synthesis && !!synthesizer}
-                  disabled={!synthesizer}
+                  disabled={!synthesisCandidate}
                   onChange={(e) => {
                     setSynthesis(e.target.checked);
+                    if (e.target.checked && !synthesizer && synthesisCandidate)
+                      setSynthesizerId(synthesisCandidate.id);
                     clientId.current = null;
                   }}
                 />
-                {synthesizer ? `${synthesizer.name} synthesizes` : 'No separate synthesizer'}
+                {synthesizer
+                  ? `${nameOf(room, synthesizer.id)} synthesizes`
+                  : synthesisCandidate
+                    ? 'Synthesize collected answers'
+                    : 'No separate synthesizer'}
               </label>
             </>
           )}
@@ -1374,12 +1451,7 @@ function Composer({
         <button
           className="primary send-button"
           type="submit"
-          disabled={
-            sending ||
-            !body.trim() ||
-            room.status === 'stopped' ||
-            (type === 'question' && !recipients.length)
-          }
+          disabled={sending || !body.trim() || room.status === 'stopped' || invalidRouting}
         >
           {sending ? 'Sending…' : room.status === 'paused' ? 'Queue' : 'Send'}
           <Glyph kind="send" size={15} />
@@ -1512,13 +1584,14 @@ function NewRoom({
   const [title, setTitle] = useState('');
   const [objective, setObjective] = useState('');
   const [maxTurns, setMaxTurns] = useState(defaults.defaultMaxTurns);
+  const [participantCount, setParticipantCount] = useState(3);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function create(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      onCreated(await api.create({ title, objective, maxTurns }));
+      onCreated(await api.create({ title, objective, maxTurns, participantCount }));
     } catch (ex) {
       setError(errorText(ex));
       setBusy(false);
@@ -1564,9 +1637,20 @@ function NewRoom({
             onChange={(e) => setMaxTurns(Number(e.target.value))}
           />
         </label>
+        <label>
+          Participant count
+          <input
+            type="number"
+            required
+            min={1}
+            max={maxParticipants}
+            value={participantCount}
+            onChange={(e) => setParticipantCount(Number(e.target.value))}
+          />
+        </label>
         <p className="muted">
-          Three independent participants start in simulation. Configure each to connect a real
-          model.
+          Participants start in simulation. Configure each to connect a real model. Add or
+          deactivate participants in Settings.
         </p>
         {error && (
           <p className="form-error" role="alert">
@@ -1612,7 +1696,12 @@ function Snapshot({ snapshot, room }: { snapshot: ContextSnapshot; room: Room })
       {snapshot.messages.map((m) => (
         <div className="snapshot-message" key={m.id}>
           <strong>
-            {nameOf(room, m.authorId)} · {m.type}
+            {m.authorId === 'human'
+              ? 'You'
+              : (m.authorName ??
+                snapshot.agents.find((a) => a.id === m.authorId)?.name ??
+                nameOf(room, m.authorId))}{' '}
+            · {m.type}
           </strong>
           <p>{m.body}</p>
           <small>{m.id}</small>

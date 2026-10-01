@@ -59,6 +59,7 @@ export class SimulatedProvider implements ProviderAdapter {
         input.prompt.includes('[simulate:follow-up]') && input.discussion.roundsUsed === 1;
       const peerCount = followUp ? 1 : input.discussion.allowedPeerIds.length;
       const ask =
+        peerCount > 0 &&
         (input.discussion.roundsUsed === 0 || followUp) &&
         input.discussion.roundsUsed < input.discussion.maxRounds &&
         input.discussion.turnsRemaining >= peerCount + 1;

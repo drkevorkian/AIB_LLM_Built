@@ -16,6 +16,8 @@ import type {
   Discussion,
   AppSettings,
   WorkspaceSettingsInput,
+  AddAgentInput,
+  AgentActivationInput,
 } from '../shared/contracts.js';
 import {
   agentActionSchema,
@@ -23,6 +25,12 @@ import {
   createRoomSchema,
   sendSchema,
   workspaceSettingsSchema,
+  addAgentSchema,
+  agentActivationSchema,
+  isAgentActive,
+  agentLabel,
+  hasPendingWork,
+  maxParticipants,
 } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
@@ -70,13 +78,15 @@ export class ConversationEngine extends EventEmitter {
       ['AI B', 'Debugger · examine transitions and failure cases', 'amber'],
       ['AI C', 'Reviewer · check assumptions and user-visible behavior', 'violet'],
     ] as const;
-    const agents: Agent[] = definitions.map(([name, role, color]) => ({
+    const agents: Agent[] = Array.from({ length: input.participantCount }, (_, index) => ({
       id: this.id(),
-      name,
-      role,
-      color,
-      provider: 'simulated',
+      name: definitions[index]?.[0] ?? `AI ${String.fromCharCode(65 + index)}`,
+      role: definitions[index]?.[1] ?? 'Contributor · provide an independent perspective',
+      color: definitions[index % definitions.length]![2],
+      provider: 'simulated' as const,
       model: 'simulation-v1',
+      configRevision: 0,
+      active: true,
     }));
     const room: Room = {
       schemaVersion: 1,
@@ -90,6 +100,10 @@ export class ConversationEngine extends EventEmitter {
       maxTurns: input.maxTurns,
       turnsUsed: 0,
       agents,
+      agentRevisions: agents.map((agent) => ({
+        agent: structuredClone(agent),
+        recordedAt: createdAt,
+      })),
       threads: [],
       messages: [],
       requests: [],
@@ -99,7 +113,7 @@ export class ConversationEngine extends EventEmitter {
       relays: [],
       discussions: [],
     };
-    this.audit(room, 'room.created', 'Room created with three simulated participants.');
+    this.audit(room, 'room.created', `Room created with ${agents.length} simulated participants.`);
     this.store.create(room);
     this.changed(room.id);
     return room;
@@ -280,16 +294,7 @@ export class ConversationEngine extends EventEmitter {
     this.store.mutate(roomId, (room) => {
       const agent = room.agents.find((a) => a.id === input.agentId);
       if (!agent) throw new AppError(400, 'Unknown participant.');
-      if (
-        room.jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
-        this.connectionChecks.has(input.agentId) ||
-        room.relays.some((r) => ['running', 'blocked'].includes(r.status)) ||
-        room.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status))
-      )
-        throw new AppError(
-          409,
-          'Finish or stop pending work before editing participants. Existing context snapshots retain their original settings.',
-        );
+      this.assertRosterEditable(room);
       const next: Agent = { ...agent, ...input, configRevision: (agent.configRevision ?? 0) + 1 };
       delete (next as Agent & { agentId?: string }).agentId;
       try {
@@ -301,6 +306,7 @@ export class ConversationEngine extends EventEmitter {
         );
       }
       Object.assign(agent, next);
+      this.recordAgent(room, agent);
       this.audit(
         room,
         'agent.configured',
@@ -310,11 +316,76 @@ export class ConversationEngine extends EventEmitter {
     this.changed(roomId);
   }
 
+  addAgent(roomId: string, raw: AddAgentInput): Agent {
+    const input = addAgentSchema.parse(raw);
+    const agent = this.store.mutate(roomId, (room) => {
+      this.assertRosterEditable(room);
+      if (room.agents.length >= maxParticipants)
+        throw new AppError(
+          409,
+          `A workspace supports at most ${maxParticipants} participant identities, including inactive ones.`,
+        );
+      const agent: Agent = {
+        id: this.id(),
+        ...input,
+        color: (['teal', 'amber', 'violet'] as const)[room.agents.length % 3]!,
+        provider: 'simulated',
+        model: 'simulation-v1',
+        configRevision: 0,
+        active: true,
+      };
+      room.agents.push(agent);
+      this.recordAgent(room, agent);
+      this.audit(room, 'agent.added', `${agent.name} added in simulation (${agent.id}).`);
+      return agent;
+    });
+    this.changed(roomId);
+    return agent;
+  }
+
+  setAgentActive(roomId: string, agentId: string, raw: AgentActivationInput): void {
+    const input = agentActivationSchema.parse(raw);
+    this.store.mutate(roomId, (room) => {
+      const agent = room.agents.find((a) => a.id === agentId);
+      if (!agent) throw new AppError(400, 'Unknown participant.');
+      this.assertRosterEditable(room);
+      if (isAgentActive(agent) === input.active) return;
+      if (!input.active && room.agents.filter(isAgentActive).length === 1)
+        throw new AppError(409, 'Keep at least one active participant in this workspace.');
+      agent.active = input.active;
+      agent.configRevision = (agent.configRevision ?? 0) + 1;
+      this.recordAgent(room, agent);
+      this.audit(
+        room,
+        'agent.activation',
+        `${agent.name} ${input.active ? 'activated' : 'deactivated'} (${agent.id}). History retained.`,
+      );
+    });
+    this.changed(roomId);
+  }
+
+  private assertRosterEditable(room: Room): void {
+    if (hasPendingWork(room) || room.agents.some((a) => this.connectionChecks.has(a.id)))
+      throw new AppError(
+        409,
+        'Finish or stop pending work before editing participants. Existing context snapshots retain their original settings.',
+      );
+  }
+
+  private recordAgent(room: Room, agent: Agent): void {
+    (room.agentRevisions ??= []).push({
+      agent: structuredClone(agent),
+      recordedAt: this.timestamp(),
+    });
+  }
+
   async testConnection(roomId: string, agentId: string): Promise<{ reply: string }> {
     if (this.closed) throw new AppError(409, 'Service is shutting down.');
     const room = this.store.get(roomId);
     const agent = room.agents.find((a) => a.id === agentId);
     if (!agent) throw new AppError(400, 'Unknown participant.');
+    if (!isAgentActive(agent))
+      throw new AppError(409, 'Reactivate this participant before testing its connection.');
     if (
       this.connectionChecks.has(agentId) ||
       [...this.active.values()].some((t) => t.agentId === agentId) ||
@@ -388,11 +459,11 @@ export class ConversationEngine extends EventEmitter {
         throw new AppError(409, 'Resume this room before sending new messages.');
       if (new Set(input.recipientIds).size !== input.recipientIds.length)
         throw new AppError(400, 'Select each recipient once.');
-      const agentIds = new Set(room.agents.map((a) => a.id));
+      const agentIds = new Set(room.agents.filter(isAgentActive).map((a) => a.id));
       if (input.recipientIds.some((id) => !agentIds.has(id)))
-        throw new AppError(400, 'Unknown recipient.');
+        throw new AppError(400, 'Unknown or inactive recipient.');
       if (input.synthesisAgentId && !agentIds.has(input.synthesisAgentId))
-        throw new AppError(400, 'Unknown synthesis agent.');
+        throw new AppError(400, 'Unknown or inactive synthesis agent.');
       if (input.type === 'question' && !input.recipientIds.length)
         throw new AppError(400, 'A question needs at least one recipient.');
       if (input.relayOrder.length) {
@@ -408,7 +479,7 @@ export class ConversationEngine extends EventEmitter {
             'A relay is a question addressed to its first participant, without parallel collection or synthesis.',
           );
         if (input.relayOrder.some((id) => !agentIds.has(id)))
-          throw new AppError(400, 'Unknown relay participant.');
+          throw new AppError(400, 'Unknown or inactive relay participant.');
       }
       if (
         input.discussion &&
@@ -503,7 +574,7 @@ export class ConversationEngine extends EventEmitter {
             threadId,
             leaderId: input.recipientIds[0]!,
             allowedPeerIds: room.agents
-              .filter((a) => a.id !== input.recipientIds[0])
+              .filter((a) => isAgentActive(a) && a.id !== input.recipientIds[0])
               .map((a) => a.id),
             status: 'running',
             maxRounds: input.discussion.maxRounds,
@@ -619,6 +690,18 @@ export class ConversationEngine extends EventEmitter {
       if (!previous || !['failed', 'interrupted'].includes(previous.status))
         throw new AppError(400, 'Only failed or interrupted work can be retried.');
       const request = room.requests.find((r) => r.id === previous.requestId)!;
+      const workflowIds = new Set([
+        previous.agentId,
+        ...request.recipientIds,
+        ...(request.synthesisAgentId ? [request.synthesisAgentId] : []),
+        ...(room.relays.find((r) => r.id === request.relayId)?.order ?? []),
+        ...(room.discussions.find((d) => d.id === previous.discussionId)?.allowedPeerIds ?? []),
+      ]);
+      if ([...workflowIds].some((id) => !room.agents.some((a) => a.id === id && isAgentActive(a))))
+        throw new AppError(
+          409,
+          'Reactivate the participants in this workflow before retrying, or ask a new question.',
+        );
       if (
         [previous.snapshotId, request.snapshotId].some(
           (id) => room.snapshots.find((s) => s.id === id)?.deletedMessageIds?.length,
@@ -664,10 +747,14 @@ export class ConversationEngine extends EventEmitter {
         );
       if (previous.kind === 'synthesis') {
         const original = room.snapshots.find((s) => s.id === request.snapshotId)!;
+        const binding = room.snapshots.find((s) => s.id === previous.snapshotId)!;
         const included = request.includedMessageIds.map((id) =>
           room.messages.find((m) => m.id === id)!,
         );
-        const snapshot = this.snapshot(room, [...original.messages, ...included]);
+        const snapshot = this.snapshot(
+          { ...room, agents: binding.agents, objective: binding.objective },
+          [...original.messages, ...included],
+        );
         room.snapshots.push(snapshot);
         room.jobs.push({
           ...this.job(request, previous.agentId, previous.kind, snapshot.id),
@@ -739,6 +826,12 @@ export class ConversationEngine extends EventEmitter {
       const job = room.jobs.find((j) => j.id === jobId)!;
       if (room.status !== 'running' || job.status !== 'queued') return;
       const request = room.requests.find((r) => r.id === job.requestId)!;
+      if (!room.agents.some((a) => a.id === job.agentId && isAgentActive(a))) {
+        this.cancelJob(room, job);
+        this.collect(room, request.id);
+        this.audit(room, 'job.unavailable', 'Inactive or missing participant blocked dispatch.');
+        return;
+      }
       if (room.turnsUsed >= room.maxTurns) {
         room.status = 'paused';
         this.audit(room, 'budget.exhausted', 'Turn limit reached.');
@@ -798,21 +891,21 @@ export class ConversationEngine extends EventEmitter {
       const includedAnswers = includedIds.map((id) => {
         const message = room.messages.find((m) => m.id === id)!;
         return {
-          author: room.agents.find((a) => a.id === message.authorId)!.name,
+          author: agentLabel(room, message.authorId, message.snapshotId),
           body: message.body,
         };
       });
       const includedAuthorIds = new Set(
         includedIds.map((id) => room.messages.find((m) => m.id === id)!.authorId),
       );
-      const expectedRespondents = (sourceRequest ?? request).recipientIds.map(
-        (id) => room.agents.find((a) => a.id === id)!.name,
+      const expectedRespondents = (sourceRequest ?? request).recipientIds.map((id) =>
+        agentLabel(room, id, snapshot.id),
       );
       const missingRespondents =
         job.kind === 'synthesis' || sourceRequest
           ? (sourceRequest ?? request).recipientIds
               .filter((id) => !includedAuthorIds.has(id))
-              .map((id) => room.agents.find((a) => a.id === id)!.name)
+              .map((id) => agentLabel(room, id, snapshot.id))
           : [];
       input = {
         agent,
@@ -842,7 +935,10 @@ export class ConversationEngine extends EventEmitter {
       };
       claimedAgentId = agent.id;
     });
-    if (!input) return;
+    if (!input) {
+      this.changed(roomId);
+      return;
+    }
     this.active.set(jobId, { roomId, agentId: claimedAgentId, abort });
     this.changed(roomId);
     void this.generate(roomId, jobId, input, abort.signal);
@@ -962,7 +1058,10 @@ export class ConversationEngine extends EventEmitter {
           room.messages.find((m) => m.id === id)!,
         );
         try {
-          const snapshot = this.snapshot(room, [...original.messages, ...included]);
+          const snapshot = this.snapshot(
+            { ...room, agents: original.agents, objective: original.objective },
+            [...original.messages, ...included],
+          );
           room.snapshots.push(snapshot);
           room.jobs.push(this.job(request, request.synthesisAgentId, 'synthesis', snapshot.id));
         } catch (error) {
@@ -1428,10 +1527,7 @@ export class ConversationEngine extends EventEmitter {
       );
   }
 
-  private snapshot(
-    room: Room,
-    messages: Pick<Message, 'id' | 'authorId' | 'type' | 'body'>[],
-  ): ContextSnapshot {
+  private snapshot(room: Room, messages: ContextSnapshot['messages']): ContextSnapshot {
     if (messages.reduce((n, m) => n + m.body.length, room.objective.length) > 64000)
       throw new AppError(
         413,
@@ -1442,7 +1538,18 @@ export class ConversationEngine extends EventEmitter {
       sequence: room.messageSequence ?? room.messages.reduce((n, m) => Math.max(n, m.sequence), 0),
       objective: room.objective,
       agents: structuredClone(room.agents),
-      messages: messages.map(({ id, authorId, type, body }) => ({ id, authorId, type, body })),
+      messages: messages.map(({ id, authorId, type, body, authorName }) => {
+        const source = room.messages.find((m) => m.id === id);
+        return {
+          id,
+          authorId,
+          type,
+          body,
+          authorName:
+            authorName ??
+            (authorId === 'human' ? 'Human' : agentLabel(room, authorId, source?.snapshotId)),
+        };
+      }),
       createdAt: this.timestamp(),
     };
   }

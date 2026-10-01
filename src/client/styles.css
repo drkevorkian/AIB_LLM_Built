@@ -715,6 +715,8 @@ p {
   font-size: 9px;
 }
 .recipient {
+  min-width: 0;
+  max-width: 100%;
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -724,6 +726,10 @@ p {
   cursor: pointer;
   font-size: 10px;
   color: var(--muted);
+}
+.recipient span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .recipient input {
   width: 11px;
@@ -1547,6 +1553,44 @@ progress::-moz-progress-bar {
   flex-shrink: 0;
   font-size: 11px;
 }
+.participant-actions {
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto !important;
+}
+.participant-actions button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.participant-inactive {
+  border-style: dashed;
+}
+.participant-history {
+  margin-top: 12px;
+  font-size: 11px;
+}
+.participant-history summary {
+  cursor: pointer;
+  color: var(--subtle);
+}
+.participant-history ol {
+  padding-left: 18px;
+}
+.participant-history li {
+  margin-top: 14px;
+}
+.add-participant-button {
+  margin-top: 16px;
+}
+.add-participant-form {
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
 .danger-zone {
   display: flex;
   align-items: center;
@@ -1608,6 +1652,14 @@ progress::-moz-progress-bar {
   }
   .settings-participant > div {
     flex-basis: calc(100% - 42px);
+  }
+  .settings-participant .participant-actions {
+    flex-basis: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .participant-actions button {
+    margin-left: 0;
   }
   .delete-item {
     min-height: 36px;

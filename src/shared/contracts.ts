@@ -29,10 +29,16 @@ export const agentSettingsSchema = z.strictObject({
   timeoutSeconds: z.number().int().min(5).max(600).default(180),
 });
 export const connectionTestSchema = z.strictObject({ agentId: idSchema });
+export const maxParticipants = 8;
+export const addAgentSchema = agentSettingsSchema.pick({ name: true, role: true });
+export const agentActivationSchema = z.strictObject({ active: z.boolean() });
+export type AddAgentInput = z.input<typeof addAgentSchema>;
+export type AgentActivationInput = z.input<typeof agentActivationSchema>;
 export const createRoomSchema = z.strictObject({
   title: z.string().trim().min(1).max(100),
   objective: z.string().trim().max(3000).default(''),
   maxTurns: z.number().int().min(1).max(1000).default(100),
+  participantCount: z.number().int().min(1).max(maxParticipants).default(3),
 });
 export const appSettingsSchema = z.strictObject({
   defaultMaxTurns: z.number().int().min(1).max(1000),
@@ -89,7 +95,7 @@ export type AgentAction = z.infer<typeof agentActionSchema>;
 export const stopDiscussionSchema = z.strictObject({ discussionId: idSchema });
 export const controlSchema = z.strictObject({ action: z.enum(['pause', 'resume', 'stop']) });
 export const retrySchema = z.strictObject({ jobId: idSchema });
-export type CreateRoomInput = z.infer<typeof createRoomSchema>;
+export type CreateRoomInput = z.input<typeof createRoomSchema>;
 export type SendInput = z.input<typeof sendSchema>;
 export type AgentSettingsInput = z.input<typeof agentSettingsSchema>;
 export type ProviderKind = z.infer<typeof providerSchema>;
@@ -121,7 +127,17 @@ export interface Agent {
   maxOutputTokens?: number;
   timeoutSeconds?: number;
   configRevision?: number;
+  /** Legacy participants are active when this field is absent. */
+  active?: boolean;
   color: 'teal' | 'amber' | 'violet';
+}
+export interface AgentRevision {
+  agent: Agent;
+  /** null identifies a recovered legacy configuration with no known edit time. */
+  recordedAt: string | null;
+}
+export function isAgentActive(agent: Agent): boolean {
+  return agent.active !== false;
 }
 export interface Thread {
   id: string;
@@ -150,7 +166,7 @@ export interface ContextSnapshot {
   sequence: number;
   objective: string;
   agents: Agent[];
-  messages: Pick<Message, 'id' | 'authorId' | 'type' | 'body'>[];
+  messages: (Pick<Message, 'id' | 'authorId' | 'type' | 'body'> & { authorName?: string })[];
   createdAt: string;
   /** Human deletion redacts source copies; these snapshots cannot be reused for retries. */
   deletedMessageIds?: string[];
@@ -247,6 +263,7 @@ export interface Room {
   /** Minimal replay tombstones retain UUIDs, never deleted text or command hashes. */
   deletedClientIds?: string[];
   agents: Agent[];
+  agentRevisions?: AgentRevision[];
   threads: Thread[];
   messages: Message[];
   requests: Request[];
@@ -265,4 +282,38 @@ export interface SendResult {
   threadId: string;
   requestId: string | null;
   discussionId?: string;
+}
+
+export function agentAtSnapshot(
+  room: Pick<Room, 'agents' | 'snapshots'>,
+  agentId: string,
+  snapshotId?: string | null,
+): Agent | undefined {
+  return (
+    room.snapshots.find((s) => s.id === snapshotId)?.agents.find((a) => a.id === agentId) ??
+    room.agents.find((a) => a.id === agentId)
+  );
+}
+
+export function hasPendingWork(room: Pick<Room, 'jobs' | 'relays' | 'discussions'>): boolean {
+  return (
+    room.jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
+    room.relays.some((r) => r.status === 'running' || r.status === 'blocked') ||
+    room.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status))
+  );
+}
+
+/** Stable roster positions distinguish duplicate display names without changing identity. */
+export function agentLabel(
+  room: Pick<Room, 'agents' | 'snapshots'>,
+  agentId: string,
+  snapshotId?: string | null,
+): string {
+  const roster = room.snapshots.find((s) => s.id === snapshotId)?.agents ?? room.agents;
+  const agent = agentAtSnapshot(room, agentId, snapshotId);
+  if (!agent) return agentId;
+  const position = roster.findIndex((a) => a.id === agentId);
+  return position >= 0 && roster.filter((a) => a.name === agent.name).length > 1
+    ? `${agent.name} · #${position + 1}`
+    : agent.name;
 }

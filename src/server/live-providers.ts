@@ -119,7 +119,12 @@ export function providerPrompt(input: ProviderInput): { system: string; user: st
     system,
     user: JSON.stringify({
       objective: input.snapshot.objective,
-      participants: input.snapshot.agents.map(({ id, name, role }) => ({ id, name, role })),
+      participants: input.snapshot.agents.map(({ id, name, role, active }) => ({
+        id,
+        name,
+        role,
+        active: active !== false,
+      })),
       context: input.snapshot.messages,
       currentRequest: input.prompt,
       includedAnswers: input.includedAnswers,

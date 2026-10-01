@@ -10,6 +10,7 @@ import {
   connectionTestSchema,
   stopDiscussionSchema,
   appSettingsSchema,
+  agentLabel,
 } from '../shared/contracts.js';
 import type { ConversationEngine } from './engine.js';
 import { AppError } from './errors.js';
@@ -106,7 +107,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
       if (req.method === 'GET' && url.pathname === '/api/session') {
         json(res, 200, {
           token,
-          version: '0.4.1',
+          version: '0.5.0',
           transport: 'configured',
           continuesWithoutClient: true,
         });
@@ -168,6 +169,26 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
           engine.deleteThread(idSchema.parse(threadMatch[1]), idSchema.parse(threadMatch[2])),
         );
         return;
+      }
+      const participantMatch =
+        /^\/api\/rooms\/([a-zA-Z0-9_-]+)\/participants(?:\/([a-zA-Z0-9_-]+))?$/.exec(url.pathname);
+      if (participantMatch) {
+        const roomId = idSchema.parse(participantMatch[1]);
+        if (!participantMatch[2] && req.method === 'POST') {
+          engine.addAgent(roomId, (await body(req)) as Parameters<typeof engine.addAgent>[1]);
+          json(res, 201, engine.store.get(roomId));
+          return;
+        }
+        if (participantMatch[2] && req.method === 'PUT') {
+          engine.setAgentActive(
+            roomId,
+            idSchema.parse(participantMatch[2]),
+            (await body(req)) as Parameters<typeof engine.setAgentActive>[2],
+          );
+          json(res, 200, engine.store.get(roomId));
+          return;
+        }
+        throw new AppError(405, 'Method not supported.');
       }
       const match =
         /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|export|agents|connection-test|discussion-stop|settings))?$/.exec(
@@ -242,7 +263,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
           const name =
             message.authorId === 'human'
               ? 'Human'
-              : (room.agents.find((a) => a.id === message.authorId)?.name ?? message.authorId);
+              : agentLabel(room, message.authorId, message.snapshotId);
           const snapshot = room.snapshots.find((s) => s.id === message.snapshotId);
           const binding = snapshot?.agents.find((a) => a.id === message.authorId);
           const redaction = snapshot?.deletedMessageIds?.length
@@ -253,7 +274,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
             message.recipientIds
               .map(
                 (id) =>
-                  `${id === 'human' ? 'Human' : (room.agents.find((a) => a.id === id)?.name ?? id)} (${id})`,
+                  `${id === 'human' ? 'Human' : agentLabel(room, id, message.snapshotId)} (${id})`,
               )
               .join(', ') || 'room observers';
           const action = attempt?.agentAction;
