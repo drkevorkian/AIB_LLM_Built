@@ -133,6 +133,339 @@ test('message rendering cannot execute HTML; theme and narrow layout remain usab
   await page.screenshot({ path: 'test-results/mobile.png', fullPage: true });
 });
 
+test('Markdown, code copying, original source, search, archive, and reload work on desktop and narrow screens', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.setViewportSize({ width: 1440, height: 980 });
+  const title = await createRoom(page);
+  const code = 'const answer = "<img src=x>";\n' + '// ' + 'long-code-line '.repeat(35) + '\n';
+  const body =
+    '# Release review\n\n**Bold evidence** and `inline code`.\n\n- First\n- Second\n\n> Preserve the original answers.\n\n- [x] Tested\n- [ ] Pending\n\n| Participant | Result | Version | Scope | Source |\n| --- | --- | --- | --- | --- |\n| AI A | Ready | v0.7 | Room | Local |\n\n```js\n' +
+    code +
+    '```\n\n[Documentation](https://example.com/docs)';
+  await page.getByLabel('Message type').selectOption('update');
+  await page.getByLabel('Message', { exact: true }).fill(body);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const message = page.locator('.message.update');
+  await expect(message.getByRole('heading', { name: 'Release review', level: 3 })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+  await expect(message.locator('strong').filter({ hasText: 'Bold evidence' })).toBeVisible();
+  await expect(message.getByRole('table')).toContainText('AI A');
+  await expect(message.getByLabel('Completed task')).toBeChecked();
+  await expect(message.getByLabel('Completed task')).toBeDisabled();
+  await expect(message.getByLabel('Incomplete task')).not.toBeChecked();
+  await expect(message.getByLabel('Incomplete task')).toBeDisabled();
+  await message.getByRole('button', { name: 'Copy code', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(code);
+  await message.getByRole('button', { name: 'Copy message', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(body);
+  await message.getByRole('button', { name: 'View source', exact: true }).click();
+  await expect(message.locator('.message-source')).toHaveText(body);
+  await expect(message.getByRole('table')).toHaveCount(0);
+  await expect(message.getByRole('button', { name: 'Copy code', exact: true })).toHaveCount(0);
+  await message.getByRole('button', { name: 'View formatted', exact: true }).click();
+  await expect(message.getByRole('table')).toBeVisible();
+  await page.screenshot({ path: 'test-results/markdown.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(await message.locator('pre').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  await message.locator('pre').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect
+    .poll(() => message.locator('pre').evaluate((el) => el.scrollLeft))
+    .toBeGreaterThan(0);
+  const table = message.getByRole('region', { name: 'Message table', exact: true });
+  expect(await table.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  await table.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => table.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Toggle theme' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.screenshot({ path: 'test-results/markdown-mobile.png', fullPage: true });
+  await page.getByLabel('Search threads', { exact: true }).fill('**Bold evidence**');
+  await expect(page.locator('.thread-entry')).toHaveCount(1);
+  const { room, headers } = await workspaceRecord(page, title);
+  const before = JSON.stringify(room.messages);
+  const exported = await page.request.get(`/api/rooms/${room.id}/export`, { headers });
+  expect(exported.ok()).toBe(true);
+  expect(await exported.text()).toContain(body);
+  expect(
+    (
+      await page.request.put(`/api/rooms/${room.id}/archive`, { headers, data: { archived: true } })
+    ).ok(),
+  ).toBe(true);
+  await expect(page.locator('.archived-notice')).toBeVisible();
+  await expect(message.getByRole('button', { name: 'Copy message', exact: true })).toBeEnabled();
+  await message.getByRole('button', { name: 'View source', exact: true }).click();
+  await expect(message.locator('.message-source')).toHaveText(body);
+  await page.reload();
+  await page.getByLabel('Workspace view').selectOption('archived');
+  await page.getByRole('button', { name: title + ' Archived', exact: true }).click();
+  await expect(page.locator('.archived-notice')).toBeVisible();
+  await expect(message.getByRole('table')).toBeVisible();
+  await message.getByRole('button', { name: 'Copy message', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(body);
+  const after = (await (
+    await page.request.get(`/api/rooms/${room.id}`, { headers })
+  ).json()) as Room;
+  expect(JSON.stringify(after.messages)).toBe(before);
+  expect(after.turnsUsed).toBe(0);
+});
+
+test('Markdown links and HTML cannot execute, load remote images, or submit local commands', async ({
+  page,
+}) => {
+  const external: string[] = [];
+  const errors: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('evil.example')) external.push(request.url());
+  });
+  page.on('pageerror', (error) => errors.push(error.message));
+  await createRoom(page);
+  const body =
+    '# Safety check\n\n[Allowed](https://example.com/docs) [Blocked](javascript:window.injected=true) [Entity](jav&#x61;script:alert%281%29) [Internal](/api/session) [Credentials](https://user:password@example.com/)\n\n![tracking](https://evil.example/pixel)\n\n<img src="https://evil.example/pixel" onerror="window.injected=true">\n\n<svg onload="window.injected=true"></svg>\n\n<iframe srcdoc="<script>window.injected=true</script>"></iframe>\n\n<form action="/api/settings"><input name="token"></form>';
+  await page.getByLabel('Message type').selectOption('update');
+  await page.getByLabel('Message', { exact: true }).fill(body);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const message = page.locator('.message.update .message-body');
+  await expect(message.getByRole('link')).toHaveCount(1);
+  await expect(message.getByRole('link', { name: 'Allowed' })).toHaveAttribute(
+    'href',
+    'https://example.com/docs',
+  );
+  await expect(message.getByRole('link', { name: 'Allowed' })).toHaveAttribute('target', '_blank');
+  await expect(message.getByRole('link', { name: 'Allowed' })).toHaveAttribute(
+    'rel',
+    'noopener noreferrer',
+  );
+  await expect(message.getByRole('link', { name: 'Allowed' })).toHaveAttribute(
+    'referrerpolicy',
+    'no-referrer',
+  );
+  for (const label of ['Blocked', 'Entity', 'Internal', 'Credentials']) {
+    await expect(message.getByText(label, { exact: true })).toHaveAttribute(
+      'class',
+      'blocked-link',
+    );
+  }
+  const location = page.url();
+  await message.getByText('Blocked', { exact: true }).click();
+  expect(page.url()).toBe(location);
+  await expect(message.locator('img, script, svg, iframe, form, input, style')).toHaveCount(0);
+  await expect(message).toContainText('[Image: tracking — not loaded]');
+  await expect(message).toContainText('<img src=');
+  expect(await page.evaluate(() => 'injected' in window)).toBe(false);
+  expect(external).toEqual([]);
+  expect(errors).toEqual([]);
+  await expect(page.locator('.budget-card')).toContainText('0 / 100');
+});
+
+test('clipboard rejection and missing clipboard API expose selectable source and permit a later copy', async ({
+  page,
+}) => {
+  await createRoom(page);
+  const body = '**Manual copy**\n\n```txt\nKeep this source.\n```';
+  await page.getByLabel('Message type').selectOption('update');
+  await page.getByLabel('Message', { exact: true }).fill(body);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const message = page.locator('.message.update');
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error('Fixture secret must not be exposed');
+        },
+      },
+    }),
+  );
+  await message.getByRole('button', { name: 'Copy code', exact: true }).click();
+  await expect(message.locator('.code-block').getByRole('status')).toHaveText(
+    'Clipboard unavailable. Select the text to copy.',
+  );
+  await expect(message.locator('pre')).toHaveText('Keep this source.\n');
+  await message.getByRole('button', { name: 'Copy message', exact: true }).click();
+  await expect(message.locator('.message-source')).toHaveText(body);
+  await expect(message.locator('.message-actions').getByRole('status')).toHaveText(
+    'Clipboard unavailable. Select the text to copy.',
+  );
+  expect(
+    await message.locator('.message-source').evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return selection.toString();
+    }),
+  ).toBe(body);
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }),
+  );
+  await message.getByRole('button', { name: 'Copy message', exact: true }).click();
+  await expect(message.locator('.message-actions').getByRole('status')).toHaveText(
+    'Clipboard unavailable. Select the text to copy.',
+  );
+  await expect(message).not.toContainText('Fixture secret');
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          sessionStorage.setItem('copiedFixture', value);
+        },
+      },
+    }),
+  );
+  await message.getByRole('button', { name: 'Copy message', exact: true }).click();
+  await expect(message.locator('.message-actions').getByRole('status')).toHaveText('Text copied.');
+  expect(await page.evaluate(() => sessionStorage.getItem('copiedFixture'))).toBe(body);
+  await expect(message.getByRole('button', { name: 'Copy message', exact: true })).toBeEnabled();
+});
+
+test('a failed formatting module preserves readable source, copying, and conversation controls', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.route('**/assets/MarkdownText-*.js', (route) => route.abort());
+  await createRoom(page);
+  const source = '# Still readable\n\n```js\nconst value = "<img>";\n```';
+  await page.getByLabel('Message type').selectOption('update');
+  await page.getByLabel('Message', { exact: true }).fill(source);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const message = page.locator('.message.update');
+  await expect(message.locator('.formatting-notice')).toHaveText(
+    'Formatted view unavailable. Original text is shown.',
+  );
+  await expect(message.locator('.message-literal')).toHaveText(source);
+  await expect(message.locator('img')).toHaveCount(0);
+  await message.getByRole('button', { name: 'Copy message', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(source);
+  await page.getByLabel('Message', { exact: true }).fill('A second update remains usable.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.message.update')).toHaveCount(2);
+  await expect(page.locator('.message.update').last()).toContainText(
+    'A second update remains usable.',
+  );
+  await expect(page.locator('.budget-card')).toContainText('0 / 100');
+});
+
+test('split Markdown streams, completed answers, and failed partial code retain their exact provider source', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const { createServer } = await import('node:http');
+  const requests: { context: { authorId: string; body: string }[] }[] = [];
+  const first = '## Final answer\n\n```js\nconsole.log("<img';
+  const last =
+    ' src=x>");\n```\n\n[Documentation](https://example.com/docs)\n\n![tracking](https://evil.example/pixel)';
+  let complete: (() => void) | undefined;
+  const server = createServer((req, res) => {
+    const buffers: Buffer[] = [];
+    req.on('data', (chunk) => buffers.push(chunk));
+    req.on('end', () => {
+      const payload = JSON.parse(Buffer.concat(buffers).toString());
+      requests.push(JSON.parse(payload.messages[1].content));
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      if (requests.length === 1) {
+        res.write(JSON.stringify({ message: { content: first }, done: false }) + '\n');
+        complete = () =>
+          res.end(
+            JSON.stringify({ message: { content: last }, done: true, done_reason: 'stop' }) + '\n',
+          );
+      } else {
+        res.end(
+          JSON.stringify({
+            message: { content: '## Partial result\n\n```txt\nNo confirmed completion.' },
+            done: false,
+          }) + '\n',
+        );
+      }
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing fixture address');
+  try {
+    const title = await createRoom(page, 1);
+    const { room, headers } = await workspaceRecord(page, title);
+    const agent = room.agents[0]!;
+    expect(
+      (
+        await page.request.post(`/api/rooms/${room.id}/agents`, {
+          headers,
+          data: {
+            agentId: agent.id,
+            name: agent.name,
+            role: agent.role,
+            provider: 'ollama',
+            model: 'markdown-fixture',
+            baseUrl: `http://127.0.0.1:${address.port}`,
+            maxOutputTokens: agent.maxOutputTokens,
+            timeoutSeconds: agent.timeoutSeconds,
+          },
+        })
+      ).ok(),
+    ).toBe(true);
+    await page.getByLabel('Message', { exact: true }).fill('Give a formatted answer with code.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    const answer = page.locator('.message.answer').first();
+    await expect(answer.locator('.badge.streaming')).toBeVisible();
+    await expect(answer.locator('.message-literal')).toHaveText(first);
+    await expect(answer.locator('pre')).toHaveCount(0);
+    await answer.getByRole('button', { name: 'Copy message', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(first);
+    expect(complete).toBeDefined();
+    complete!();
+    await expect(answer.locator('.badge.streaming')).toHaveCount(0);
+    await expect(answer.getByRole('heading', { name: 'Final answer', level: 4 })).toBeVisible();
+    await expect(answer.locator('pre')).toHaveText('console.log("<img src=x>");\n');
+    await expect(answer.locator('img')).toHaveCount(0);
+    await expect(answer.getByRole('button', { name: 'Copy message', exact: true })).toHaveText(
+      'Copy message',
+    );
+    await answer.getByRole('button', { name: 'Copy message', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(first + last);
+    await answer.getByRole('button', { name: 'Reply to AI A', exact: true }).click();
+    await page.getByLabel('Message', { exact: true }).fill('Review the exact original response.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    const partial = page.locator('.message.answer').last();
+    await expect(partial.locator('.badge.failed')).toBeVisible();
+    await expect(partial.locator('pre')).toHaveText('No confirmed completion.\n');
+    await partial.getByRole('button', { name: 'Copy code', exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe('No confirmed completion.\n');
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.context.find((message) => message.authorId === agent.id)?.body).toBe(
+      first + last,
+    );
+    await partial.getByRole('button', { name: 'Inspect context', exact: true }).click();
+    await expect(
+      page.locator('.snapshot-message').filter({ hasText: 'Final answer' }),
+    ).toContainText(first + last);
+    await page.getByRole('button', { name: 'Close dialog' }).click();
+    const saved = (await (
+      await page.request.get(`/api/rooms/${room.id}`, { headers })
+    ).json()) as Room;
+    expect(saved.turnsUsed).toBe(2);
+    expect(saved.jobs).toHaveLength(2);
+    await page.reload();
+    await expect(page.locator('.message.answer')).toHaveCount(2);
+    await expect(partial.locator('pre')).toHaveText('No confirmed completion.\n');
+  } finally {
+    complete?.();
+    await new Promise<void>((done) => {
+      server.closeAllConnections();
+      server.close(() => done());
+    });
+  }
+});
+
 test('configure local models, test the connection, run a real HTTP relay, and direct a follow-up', async ({
   page,
 }) => {
@@ -406,7 +739,7 @@ test('a live HTTP coordinator asks both peers, targets one exact answer, finishe
       .locator('.message.answer')
       .filter({ hasText: 'reviewer-fixture' })
       .first()
-      .locator('.message-actions > span')
+      .locator('.message-sequence')
       .innerText();
     await expect(followUp.locator('.address-line')).toContainText(`replying to ${cSequence}`);
     await followUp.getByRole('button', { name: 'Inspect context' }).click();

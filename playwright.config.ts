@@ -1,4 +1,10 @@
 import { defineConfig } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Only the main Playwright process starts this server. Each run gets a new database.
+const dataDirectory = join(tmpdir(), `aib-ui-${randomUUID()}`);
 
 export default defineConfig({
   testDir: 'tests/ui',
@@ -20,7 +26,7 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       AIB_PORT: '4318',
-      AIB_DATA_DIR: '.data/ui-tests',
+      AIB_DATA_DIR: dataDirectory,
       OPENAI_API_KEY: '',
       XAI_API_KEY: '',
       GEMINI_API_KEY: '',

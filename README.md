@@ -2,7 +2,7 @@
 
 A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** v0.6.0 adds workspace search, thread-content search and renaming, and persistent workspace archives with explicit restoration. Workspaces support 1–8 independent participants, roster management in Settings, and persistent participant configuration history. Node.js 26.10 and Node 24 are supported. A human-selected coordinator can ask active peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. The application also includes saved conversation defaults, workspace editing, and confirmed workspace/thread deletion. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and browser flows are tested with fixtures; credentialed provider accounts and installed local models have not been verified in this workspace. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
+**Status:** v0.7.0 adds safe Markdown and code formatting, original-source views, and message/code copying. Workspace search, thread-content search and naming, and persistent archives are available. Workspaces support 1–8 independent participants, roster management in Settings, and persistent participant configuration history. Node.js 26.10 and Node 24 are supported. A human-selected coordinator can ask active peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. The application also includes saved conversation defaults, workspace editing, and confirmed workspace/thread deletion. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and browser flows are tested with fixtures; credentialed provider accounts and installed local models have not been verified in this workspace. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
 
 ## Overview
 
@@ -25,8 +25,11 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
 
-## Available in v0.6.0
+## Available in v0.7.0
 
+- Read Markdown headings, emphasis, lists, quotes, tables, disabled task checkboxes, and scrollable code blocks with language labels.
+- Switch each message between formatted and original-source views, copy its stored text, or copy an individual code block, including in archived workspaces.
+- Keep streaming text stable until the attempt ends; retain readable source if formatting fails and selectable text if the clipboard is unavailable.
 - Search workspace names/objectives and the selected workspace's thread names/messages with literal, case-insensitive matching and safe text previews.
 - Rename threads without changing their identities, messages, reply links, frozen context, or pending work.
 - Archive and restore workspaces in Settings while retaining full history and consumed usage; archived workspaces cannot invoke models or change conversation data.
@@ -47,9 +50,19 @@ You can ask two agents for independent opinions, wait for both, send their answe
 
 New rooms start in simulation so launch does not invoke or bill a provider. Configure participants explicitly to use real models. Missing credentials or failed live requests produce visible failures; they never fall back to simulation.
 
-See [v0.6.0 release notes](docs/releases/0.6.0.md), [workspace organization contract](docs/architecture/0007-workspace-organization.md), [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
+See [v0.7.0 release notes](docs/releases/0.7.0.md), [message presentation contract](docs/architecture/0008-message-presentation.md), [v0.6.0 release notes](docs/releases/0.6.0.md), [workspace organization contract](docs/architecture/0007-workspace-organization.md), [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
 
 ![Agent discussion through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
+
+## Reading and copying messages
+
+Completed messages support Markdown headings, emphasis, lists, blockquotes, tables, task lists, inline code, and fenced/indented code blocks. Message headings stay below the workspace heading. Code blocks and wide tables scroll within the conversation on narrow screens. Task checkboxes show source state and cannot be toggled. Code is displayed without execution or syntax highlighting.
+
+**View source** shows the stored message body; **View formatted** returns to Markdown. **Copy message** copies that body, including Markdown, without attribution labels or other interface text. While an answer streams, it copies the text available at that click. **Copy code** copies just the displayed code content; Markdown parsing normalizes code line endings and may add a final newline. Copying never reads your clipboard or sends another provider request. If clipboard access is missing or denied, a visible message explains manual copying, and whole-message copying opens the selectable source view.
+
+Streaming text stays literal until the attempt ends. Completed, failed, cancelled, and interrupted attempts may show formatted text; their original status remains visible, and formatting does not make a partial answer complete. The formatter loads separately and falls back to readable source if it cannot load or render. Reload after fixing a module-load problem to restore formatting. Source-view and copy feedback are per-view and reset on reload.
+
+Raw HTML remains escaped text. Image references show alt-text placeholders without loading local or remote images. Only explicit HTTP(S) links without embedded credentials are clickable, opening in a new tab without an opener or referrer. Relative links, fragments, non-web schemes, and malformed/unsafe destinations remain labels. Links never open automatically. These rules also apply to LLM-authored messages. Formatting has no routing or execution authority; frozen context, literal search previews, and exports keep the original text. Attachment upload/previews, mathematical typesetting, Mermaid rendering, internal footnote navigation, and code highlighting remain planned. An exported transcript is Markdown source; other viewers have their own rendering rules.
 
 ## Planned capabilities
 
@@ -174,7 +187,7 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-The v0.6.0 suite includes 130 engine/service/provider-protocol tests and 22 Chromium UI tests, verified under both Node 26.10.0 and 24.19.0. Coverage includes archives and explicit restoration, read-only archive commands, scoped renaming during active work, safe search previews, archive-only service restart, variable rosters, activation, configuration history, frozen retry bindings, independent duplicate names, cross-view drafts, and persistence/restart. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use `.data/ui-tests`, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
+The v0.7.0 suite includes 140 engine/service/provider-protocol/rendering tests and 27 Chromium UI tests, verified under both Node 26.10.0 and 24.19.0. Coverage includes Markdown safety, exact source/code copying, denied or missing clipboard APIs, split streams, failed partial code, formatter-load failure, source/context/export preservation, archives and explicit restoration, read-only archive commands, scoped renaming during active work, safe search previews, archive-only service restart, variable rosters, activation, configuration history, frozen retry bindings, independent duplicate names, cross-view drafts, and persistence/restart. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use a fresh temporary data directory for each run, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
 
 To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. Use `[simulate:follow-up]` in an agent discussion to demonstrate a second round targeting the first peer’s exact answer. These markers belong to simulation and have no special behavior in live providers.
 
@@ -182,7 +195,7 @@ To exercise failure handling in simulation, include `[simulate:fail]`, `[simulat
 
 The rest of this README specifies the full target design. The checked TODO items at the end record completed work; unchecked items remain planned.
 
-The v0.6.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each workspace has 1–8 participant identities, including inactive identities; at least one stays active. Their names, roles, providers, and models are editable. The service runs at most four generations concurrently and one per participant.
+The v0.7.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each workspace has 1–8 participant identities, including inactive identities; at least one stays active. Their names, roles, providers, and models are editable. The service runs at most four generations concurrently and one per participant.
 
 All messages are room-visible. All/any/quorum are the implemented collection policies. Timeout cancels unfinished work for the affected request and pauses the room; deadlines continue while paused. Each provider also has a connection timeout. Reported usage is stored per attempt; monetary cost estimates and enforced token/cost budgets are not implemented.
 
@@ -425,7 +438,7 @@ Implement domain contracts and a deterministic fake provider before live integra
 
 Contributions should explain the behavior changed, its reason, relevant failure cases, and validation. New routing or recovery behavior requires tests of its observable guarantees. No feature is complete solely because its happy path works once.
 
-TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. v0.5.0 adds variable participant rosters, activation, and configuration history. v0.6.0 adds workspace/thread search, thread renaming, and workspace archive/restore. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
+TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. v0.5.0 adds variable participant rosters, activation, and configuration history. v0.6.0 adds workspace/thread search, thread renaming, and workspace archive/restore. v0.7.0 adds safe Markdown/code presentation, original-source views, and copy controls. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
 
 ## Delivery milestones
 
@@ -440,7 +453,7 @@ TypeScript, React, Node 24, SQLite, and local browser operation were selected fo
 
 ## Complete implementation TODO checklist
 
-This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.6.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
+This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.7.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
 
 ### 1. Product scope and decisions
 
@@ -617,7 +630,7 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Implement themes with primary corner radii at 0–4 px and no radius over 8 px.
 - [ ] Add keyboard navigation, focus states, screen-reader labels, and accessible contrast.
 - [x] Preserve scroll position during streaming and provide a jump-to-latest control.
-- [ ] Render Markdown, code, and attachments safely without executable embedded content.
+- [ ] Render Markdown, code, and attachments safely without executable embedded content (Markdown/code complete in v0.7.0; attachments remain).
 - [ ] Distinguish pending, failed, refused, cancelled, uncertain, and stale results visually.
 - [x] Add clear empty states, connection errors, and recovery instructions.
 
@@ -871,3 +884,26 @@ This is the complete implementation checklist for the scope described above. Che
 - [ ] Add bulk archive/restore/deletion with explicit scope, previews, and cancellation.
 - [ ] Add optional global message search across workspaces with visibility checks, pagination, and explicit result locations.
 - [ ] Add thread archive/restore, ordering, saved views, and richer query syntax after their behavior is specified.
+
+### 27. v0.7.0 message presentation
+
+- [x] Render CommonMark/GFM headings, emphasis, lists, quotes, tables, tasks, inline code, and code blocks through React elements.
+- [x] Keep message headings below the workspace heading and task checkboxes disabled.
+- [x] Escape raw HTML and reject executable embedded content without enabling raw-HTML or MDX plugins.
+- [x] Limit links to explicit HTTP(S) origins without credentials, control characters, or ambiguous backslashes; retain blocked labels.
+- [x] Open permitted links only on user action in a new tab with opener and referrer isolation.
+- [x] Render image alt-text placeholders without image loads, preloads, or provider requests.
+- [x] Preserve exact stored bodies in source views, whole-message copies, frozen context, literal search, and exports.
+- [x] Copy individual code blocks without fences or interface text and document parser-normalized line endings.
+- [x] Keep streamed text literal until the attempt ends and preserve partial-result statuses after formatting.
+- [x] Capture copy text at the click and avoid claiming later streamed text was already copied.
+- [x] Handle missing/denied clipboard access with visible feedback, selectable source, and a later retry; never read the clipboard.
+- [x] Allow source viewing and copying in archived workspaces without conversation mutations or invocation.
+- [x] Load the formatter separately, memoize unchanged formatted bodies, and preserve usable source/controls if formatting fails.
+- [x] Keep code blocks and wide tables scrollable and keyboard-focusable within narrow layouts in both themes.
+- [x] Verify HTML/link/image safety, real clipboard writes, failure paths, streamed HTTP answers, exact context/export retention, archive/reload, and both supported Node runtimes.
+- [x] Isolate each browser run in a fresh temporary database so previous test history cannot change its starting state.
+- [ ] Add optional syntax highlighting with bounded language detection and no executable grammars.
+- [ ] Add safe mathematical typesetting and diagram presentation after defining resource and rendering policies.
+- [ ] Add scoped internal footnote navigation without duplicate document IDs or unsafe relative links.
+- [ ] Implement authorized attachment storage and previews before enabling inline image/attachment rendering.

@@ -1,6 +1,6 @@
 {
   "name": "aib-llm-built",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "A local, persistent conversation room for independent LLM agents.",
@@ -21,6 +21,8 @@
   "dependencies": {
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
     "zod": "4.6.5"
   },
   "devDependencies": {

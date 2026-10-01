@@ -694,9 +694,166 @@ p {
 .message-body {
   font-size: 12px;
   line-height: 1.9;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--body-text);
+}
+.message-literal {
+  white-space: pre-wrap;
+}
+.message-source,
+.message-body code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.message-markdown > :first-child {
+  margin-top: 0;
+}
+.message-markdown > :last-child {
+  margin-bottom: 0;
+}
+.message-markdown p,
+.message-markdown ul,
+.message-markdown ol,
+.message-markdown blockquote,
+.message-markdown .code-block,
+.message-markdown .markdown-table {
+  margin: 0 0 12px;
+}
+.message-markdown h3,
+.message-markdown h4,
+.message-markdown h5,
+.message-markdown h6 {
+  color: var(--text);
+  line-height: 1.5;
+  margin: 18px 0 8px;
+  font-size: 14px;
+}
+.message-markdown h3 {
+  font-size: 17px;
+}
+.message-markdown h4 {
+  font-size: 15px;
+}
+.message-markdown li > p {
+  margin-bottom: 5px;
+}
+.message-markdown ul,
+.message-markdown ol {
+  padding-left: 23px;
+}
+.message-markdown blockquote {
+  border-left: 3px solid var(--teal-line);
+  padding-left: 13px;
+  color: var(--muted);
+}
+.message-markdown blockquote > :last-child {
+  margin-bottom: 0;
+}
+.message-markdown a {
+  color: var(--teal);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.message-markdown a:focus-visible,
+.message-markdown pre:focus-visible,
+.markdown-table:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+}
+.message-markdown hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 15px 0;
+}
+.message-markdown :not(pre) > code {
+  background: var(--inset);
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.blocked-link {
+  text-decoration: underline dotted;
+}
+.image-placeholder {
+  color: var(--muted);
+}
+.code-block {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--inset);
+  overflow: hidden;
+}
+.code-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+}
+.code-heading button {
+  padding: 3px 6px;
+  background: transparent;
+  font-size: 10px;
+}
+.code-block pre {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre;
+  max-height: 420px;
+  tab-size: 2;
+  line-height: 1.65;
+}
+.markdown-table {
+  overflow: auto;
+  max-height: 420px;
+}
+.markdown-table table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.markdown-table th,
+.markdown-table td {
+  border: 1px solid var(--line);
+  padding: 6px 9px;
+  min-width: 100px;
+}
+.markdown-table th {
+  background: var(--inset);
+  text-align: left;
+}
+.message-markdown .task-list-item {
+  list-style: none;
+}
+.message-markdown .task-list-item input {
+  margin: 0 6px 0 -18px;
+}
+.copy-control {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.copy-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.copy-error {
+  color: var(--amber);
+  font-size: 10px;
+}
+.formatting-notice {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 8px;
 }
 .message.synthesis {
   background: var(--teal-dim);
@@ -709,6 +866,7 @@ p {
   display: flex;
   align-items: center;
   gap: 15px;
+  flex-wrap: wrap;
   margin-top: 13px;
 }
 .message-actions button {
@@ -718,7 +876,7 @@ p {
   padding: 3px 0;
   font-size: 9px;
 }
-.message-actions > span {
+.message-actions .message-sequence {
   margin-left: auto;
   font-family: ui-monospace, monospace;
   font-size: 9px;

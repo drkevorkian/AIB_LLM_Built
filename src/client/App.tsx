@@ -15,6 +15,8 @@ import { api, ApiError, watch } from './api.js';
 import { AgentSettings } from './AgentSettings.js';
 import { SettingsPage } from './SettingsPage.js';
 import { searchWorkspaces, searchThreads, type WorkspaceView } from './search.js';
+import { CopyButton } from './CopyButton.js';
+import { MessageText } from './MessageText.js';
 import {
   agentAtSnapshot,
   agentLabel,
@@ -341,7 +343,7 @@ export function App() {
           {liveCount
             ? `${liveCount} LIVE AGENT${liveCount === 1 ? '' : 'S'} CONFIGURED`
             : 'SIMULATION'}
-          <span className="version">v0.6.0</span>
+          <span className="version">v0.7.0</span>
         </div>
         <div className="header-actions">
           <span className={`connection ${connected ? 'online' : ''}`}>
@@ -980,6 +982,7 @@ function MessageCard({
   onReply: () => void;
   onInspect: () => void;
 }) {
+  const [source, setSource] = useState(false);
   const agent = room.agents.find((a) => a.id === m.authorId);
   const binding = agentAtSnapshot(room, m.authorId, m.snapshotId);
   const prior = room.messages.find((p) => p.id === m.replyTo);
@@ -1022,17 +1025,20 @@ function MessageCard({
               <span> · arrived after the set closed</span>
             )}
         </div>
-        <p className="message-body">
-          {m.body ||
-            (attempt?.kind === 'decision'
+        <MessageText
+          text={m.body}
+          source={source}
+          streaming={m.status === 'streaming'}
+          placeholder={
+            attempt?.kind === 'decision'
               ? m.status === 'streaming'
                 ? 'Choosing the next question or final answer…'
                 : 'No coordinator action accepted. Inspect this attempt for details.'
               : m.status === 'streaming'
                 ? 'Preparing a response…'
-                : 'No answer text received.')}
-          {m.status === 'streaming' && <span className="stream-cursor" />}
-        </p>
+                : 'No answer text received.'
+          }
+        />
         <div className="message-actions">
           <button
             onClick={onReply}
@@ -1053,7 +1059,23 @@ function MessageCard({
             <Glyph kind="inspect" size={12} />
             Inspect context
           </button>
-          <span>#{m.sequence}</span>
+          {!!m.body && (
+            <>
+              <button
+                type="button"
+                aria-pressed={source}
+                onClick={() => setSource((value) => !value)}
+              >
+                {source ? 'View formatted' : 'View source'}
+              </button>
+              <CopyButton
+                text={m.body}
+                label="Copy message"
+                onUnavailable={() => setSource(true)}
+              />
+            </>
+          )}
+          <span className="message-sequence">#{m.sequence}</span>
         </div>
       </div>
     </article>
