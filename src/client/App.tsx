@@ -2142,6 +2142,11 @@ function RemoveParticipantConfirmation({
   const [busy, setBusy] = useState(false);
   const [rejected, setRejected] = useState(false);
   const [error, setError] = useState('');
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    // The nested Modal opens first; focus cancellation after the native dialog is visible.
+    cancel.current?.focus();
+  }, []);
   async function remove() {
     setBusy(true);
     try {
@@ -2198,7 +2203,7 @@ function RemoveParticipantConfirmation({
           </p>
         )}
         <div className="settings-actions">
-          <button autoFocus disabled={busy} onClick={onClose}>
+          <button ref={cancel} autoFocus disabled={busy} onClick={onClose}>
             {rejected ? 'Close and refresh participants' : 'Cancel'}
           </button>
           <button

@@ -152,6 +152,7 @@ export function Participants({
             <label>
               New participant name
               <input
+                aria-label="New participant name"
                 required
                 autoFocus
                 maxLength={60}
@@ -162,6 +163,7 @@ export function Participants({
             <label>
               New participant role
               <textarea
+                aria-label="New participant role"
                 required
                 rows={3}
                 maxLength={3000}
