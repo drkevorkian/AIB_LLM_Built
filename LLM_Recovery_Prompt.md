@@ -1,6 +1,6 @@
 # LLM Recovery Prompt
 
-Updated: 2026-10-02 (UTC). Application checkpoint: v0.10.0.
+Updated: 2026-10-02 (UTC). Application checkpoint: v0.11.0.
 
 This file is a durable handoff for a new chat or another LLM. Paste the whole file when repository access is unavailable, or use the launch prompt below when the receiving LLM can read GitHub. The current repository is authoritative if it has advanced beyond this checkpoint.
 
@@ -21,18 +21,18 @@ The chosen stack is TypeScript with a React/Vite client, a Node.js server, and S
 
 ## Saved checkpoint
 
-- Main baseline: `91bf55cda44ff8ebe8aa92f8bcb4080d083b121a`, v0.9.0, tree `e7f088e8a7f877a3c82495961ccf60c81cfb7ac3`.
-- Branch: `main`. Application version: `0.10.0`.
-- Most recent application/test commit: `fe5096471d33a5ae1a02f7c4a5ea4fb7ef8ae161` — `Cancel desktop drags before compact-layout pointer release`.
-- Application/test Git tree: `6052c74d345109e5f7ec1b9aa1f5478a3a1ec779`.
-- Validation branch: `codex/v0.10.0-panel-layout-20261002`.
-- Exact application/test CI: https://github.com/drkevorkian/AIB_LLM_Built/actions/runs/36956469856
-- CI completed successfully for commit `fe5096471d33a5ae1a02f7c4a5ea4fb7ef8ae161`: all six platform/runtime jobs green; all 38 Chromium tests passed on Ubuntu under both runtimes.
-- The bounded v0.10.0 iteration is complete and published. No unfinished feature patch, pending required application check, publication blocker, or selected v0.11.0 feature is carried over.
-- This recovery-only document follows the verified application/test commit. Its automatically triggered CI is separate; the exact application CI above does not claim to verify the newer full documentation tree.
+- Main baseline: `affe839f1d8e07aad0c2164923cf3e5a98b24162`, v0.10.0, tree `807c32a9c5295c7f147e8a80f89e65119001b310`.
+- Branch: `main`. Application version: `0.11.0`.
+- Most recent application/test commit: `789b669e1a574488f479472ff6c459b68a0a26db` — `Select counted All messages controls in footnote browser flows`.
+- Application/test Git tree: `85e4189f8ec10618221125f8937631dc42362e53`.
+- Validation branch: `codex/v0.11.0-message-footnotes-20261002`.
+- Exact application/test CI: https://github.com/drkevorkian/AIB_LLM_Built/actions/runs/36959769781
+- CI completed successfully for commit `789b669e1a574488f479472ff6c459b68a0a26db`: all six platform/runtime jobs green; all 41 Chromium tests passed on Ubuntu under both runtimes.
+- The bounded v0.11.0 iteration is complete and published. No unfinished feature patch, pending required application check, publication blocker, or selected v0.12.0 feature is carried over.
+- This recovery-only document follows the verified application/test commit. Its automatically triggered main CI is separate; the exact application CI above does not claim to verify the newer full documentation tree. Inspect current main's run independently if needed.
 - The user requires every README checklist item to be completed and validated before version 1. README, CONTRIBUTING, and this handoff retain that gate; versions stay on 0.x, including optional and verification/security/packaging/release work.
 
-Current goal completed: the bounded v0.10.0 implementation, validation, publication, and recovery update. No second feature has been started. Read current main and select the next bounded unfinished README item.
+Current goal completed: the bounded v0.11.0 implementation, validation, publication, and recovery update. No second feature has been started. Read current main and select the next bounded unfinished README item.
 
 ## Working behavior already implemented
 
@@ -42,6 +42,7 @@ Current goal completed: the bounded v0.10.0 implementation, validation, publicat
 - Coordinator discussions with strict validated actions, frozen peer grants, 1–10 peer rounds, and a reserved 2–50 turn allowance. Invalid completed decisions permit one bounded correction; network failures do not receive that correction retry.
 - Persistent history, threads, response sets, streamed answers, frozen context inspection, reported token usage, provider request IDs, and Markdown export.
 - Per-participant queues with running/numbered queue inspection, source-thread links, dispatch holds, shared-slot occupancy, and separate synthesis/coordinator response prerequisites. A global generation limit of four, pause/resume/stop, explicit bounded retries, turn accounting, and restart recovery remain unchanged.
+- Safe Markdown/code/source presentation and exact message/code copying, now including labeled message-scoped footnote references/backlinks.
 - Settings for themes, conversation defaults, workspace name/objective/turn limits, and participant connections.
 - Desktop pointer/keyboard panel sizing with browser width preferences, Settings reset, responsive fitting, and independently collapsible navigation/participants on narrow screens.
 - Explicit greeting and coordinator capability probes, sharing scheduling limits/cancellation and leaving conversation state/turn usage unchanged.
@@ -51,7 +52,21 @@ Current goal completed: the bounded v0.10.0 implementation, validation, publicat
 
 Archive, deletion, retry, roster, search, and context guarantees are described in the architecture decisions. Inspect those documents before changing the relevant behavior.
 
-## Current iteration: panel layout
+## Current iteration: safe footnote navigation
+
+v0.11.0 adds native reference and backlink buttons to parser-generated GFM footnotes. A click or Enter/Space activation moves focus and scrolls immediately to the exact note or reference within that formatted message. Navigation does not change the URL, fragment, history, workspace/thread selection, draft, room revision, provider calls, or turns. References identify their note and occurrence, notes accept programmatic focus, backlinks target the exact reference, and the generated section has a labeled heading with visible focus styling.
+
+`MessageText` owns a React namespace retained across source/formatted toggles. The formatter assigns numeric application-owned IDs instead of copying author labels or parser IDs. Identical labels in different messages stay separate. Repeated references have distinct backlinks; per-definition mapping correctly handles the parser ID collision between the second `[^a]` reference and the first `[^a-2]` reference. Long and Unicode labels never become DOM IDs. A reload may allocate new IDs; none are persisted or exported. Focus lookup stays inside the currently connected formatted-message root rather than querying the document.
+
+Only parser-generated graph edges recognized by the presentation plugin become controls. Raw HTML and attribute imitations remain escaped text. Ordinary fragments, relative URLs, and unsafe schemes remain blocked, including authored links to an exact known application footnote ID. There is no generic fragment exemption. Protected absolute HTTP(S) links, unloaded image placeholders, inert code/tasks, the unchanged URL policy, and routing-looking text boundaries remain intact.
+
+At most 100 referenced notes and 300 reference occurrences receive navigation controls in a message. Above either limit, all footnote navigation becomes inert labels with a readable application-authored notice; parsed notes and the exact source remain available. These limits bound interactive controls/metadata, not total Markdown nodes or large-history performance. Missing/malformed references remain text, unused definitions follow normal GFM omission, and cyclic references remain finite without automatic navigation.
+
+Streaming and source views stay literal. Completed and terminal partial answers may format without changing their authoritative status; failed partial replies remain disabled. Formatter failure still retains literal footnote source, copying, and conversation controls. Stored bodies, Copy message, frozen context, search, and Markdown exports keep exact strings. There are no dependency/runtime/schema/permission changes. Broad accessibility/contrast, real assistive-technology/touch-device audits, highlighting, math, diagrams, attachments, and history pagination remain open.
+
+Read `docs/architecture/0012-message-footnotes.md`, `docs/releases/0.11.0.md`, `src/client/message-footnotes.ts`, and `tests/ui/footnotes.spec.ts` alongside ADR 0008 before extending this behavior or upgrading the parser.
+
+## Previous iteration: panel layout
 
 v0.10.0 adds two focusable desktop dividers, pointer capture, Left/Right 10 px steps (Shift 50), Home/End bounds, pixel value announcements, and visible focus. Escape, cancelled/lost capture, and Settings/compact transitions roll back unfinished drags. Completed drags and keyboard adjustments save to browser storage; these controls have no conversation authority.
 
@@ -59,11 +74,13 @@ Navigation spans 180–420 px and activity 230–480 px, with at least 400 px re
 
 `aib-panel-layout` stores only an exact version-1 object with bounded integer navigation/activity widths. Malformed, unsupported, or unreadable values use defaults. Storage write/removal failure keeps usable view sizing with an unsaved notice. Preferences belong to this browser origin; new/reloaded views read them, without live cross-tab synchronization. Compact collapse choices last only for the mounted view, while desktop always displays both panels.
 
+The final v0.10.0 correction checks the live viewport before persisting a pointer release and cancels directly from the media-query event. Preserve the browser regression that releases immediately after crossing into compact layout.
+
 Layout changes must never mutate room records, service defaults, attribution, context, grants, queues, provider lifecycle, or consumed/reserved turns. Dependencies/runtime/database versions are unchanged. The wider keyboard/screen-reader/contrast audit and real assistive-technology/touch-device review remain open. The original panel resizing/collapse checklist item is covered by this bounded feature; no broader accessibility checkbox is treated as complete.
 
 Read `docs/architecture/0011-panel-layout.md`, `docs/releases/0.10.0.md`, `src/client/PanelLayout.tsx`, and `tests/ui/layout.spec.ts` before extending this behavior.
 
-## Previous iteration: participant queue inspection
+## Earlier iteration: participant queue inspection
 
 v0.9.0 adds **Inspect queue** to each active participant card. It shows running generations and actual queued jobs in their stored per-participant order, exact source threads, frozen provider/model bindings, queue/start times, applicable collecting-response deadlines, and current dispatch holds. Sources are plain React text; selecting a source preserves the draft and uses the existing explicit thread-choice guard.
 
@@ -126,13 +143,17 @@ Each Playwright run now uses its own fresh temporary database. Do not reuse accu
 
 ## Verification and honest limits
 
-Local Node 24.19.0 passed locked installation, TypeScript checks, all 184 service/engine/provider/rendering tests, formatting, production client/server builds, `git diff --check`, and a zero-vulnerability production dependency audit. The dependency lock changes only the root application version.
+Local Node 24.19.0 passed locked installation, TypeScript checks, all 191 service/engine/provider/rendering tests, formatting, production client/server builds, `git diff --check`, and a zero-vulnerability production dependency audit. The dependency lock changes only the root application version.
 
-Five new isolated production-browser flows bring the suite to 38 browser tests (222 distinct tests including service/rendering). They cover keyboard direction/steps/bounds/focus, pointer capture and completed/cancelled gestures, reload/reset, malformed/blocked storage, responsive fitting without preference overwrites, both themes at 340–1800 px and the 1000/1001 breakpoint, mounted drafts, compact disclosures/Settings, active discussion/room Stop, and unchanged stored room records. Existing browser tests retain all prior routing, queue, roster, archive/deletion, rendering, clipboard, and acknowledged-send selection regressions.
+Seven new rendering cases cover scoped/unique IDs, repeated and colliding labels, Unicode/long labels, spoofed HTML/fragments, inert content policies, missing/unused/cyclic syntax, both navigation boundaries, and literal streaming/source. Existing source/context/search/export provenance coverage includes exact footnote syntax. Three new isolated production-browser flows bring the suite to 41 tests: 232 distinct tests including service/rendering. They cover Enter/Space focus and exact backlinks, unchanged URL/history/room records, stable source-toggle IDs, clipboard/source, both themes and narrow layout, archives/reload, blocked forged fragments/resource loads, over-limit fallback, completed versus failed partial HTTP streams, frozen context, and no automatic retry. Formatter-load failure now also retains footnote source. Prior routing, queue, roster, panel, archive/deletion, clipboard, and acknowledged-send selection regressions remain intact.
 
-The first local UI command could not launch a browser; none of its five tests executed. The previously available Chromium file is truncated (30,354,432 bytes with missing ELF sections expected beyond 209 MB) and crashes with SIGSEGV even for `--version`. One short inspection confirmed the runtime problem; no repeated downloads/recovery loop was attempted. Local browser validation is therefore unavailable in this iteration. Do not reuse that executable path or claim a local UI pass.
+The known local Chromium executable is truncated (30,354,432 bytes with missing ELF sections expected beyond 209 MB) and previously crashed with SIGSEGV even for `--version`. This iteration did not retry that executable or download replacements. Local browser validation remains unavailable; do not reuse its path or claim a local UI pass. Browser verification was completed through CI, and no local Node 26 run is claimed.
 
-The first candidate CI (`36956047465`) passed all six service/platform gates and all 38 Ubuntu Node 24 browser tests, but Node 26 caught a real drag-cancellation race: release immediately after crossing into compact layout could save before the media-query/React effect cancelled it. The correction checks the live viewport before persisting release and cancels directly from the media-query event; the same browser regression remains intact. Its local type checks, build, formatting, and diff checks passed. Final exact-source CI `36956469856` passed all 184 service/rendering tests on Node 24.19.0/26.10.0 across Linux, Windows, and macOS, with clean installation/checks/builds and zero-vulnerability audits. Both Ubuntu jobs passed all 38 Chromium tests, including the immediate compact-transition release regression: 222 distinct tests in this release. No local Node 26 run is claimed. Older and failed runs do not verify the final source.
+The later automatic v0.10.0 recovery-document CI `36956896872` failed one Ubuntu Node 26 browser check: thread deletion timed out after the default five seconds waiting for a simulated synthesis reply to become enabled. The other five jobs passed, including all 38 Ubuntu Node 24 browser tests. This was observed after the earlier application-source CI `36956469856` passed all six jobs; the prior recovery file had not claimed that its own newer tree passed. The v0.11.0 deletion test explicitly confirms the selected workspace after reload and waits up to ten seconds for the exact request's stored synthesis job to become completed before retaining its strict enabled-reply assertion. It does not accept incomplete jobs, change application behavior, or establish an unobserved application race as the cause.
+
+The first v0.11.0 candidate `d5b02d93fab8f5c9a55f42823ee702ab2ece4ad0` / CI `36959444976` passed all service/platform gates and all 38 existing browser flows under both runtimes. Its three new browser flows stopped before exercising footnotes because an exact All messages selector omitted the button's displayed count. The test-only correction uses an anchored label match that includes the count; no application change or larger timeout was needed for those failures.
+
+Final exact-source CI `36959769781` passed all 191 service/rendering tests on Node 24.19.0/26.10.0 across Linux, Windows, and macOS, with clean installation/checks/builds and zero-vulnerability production audits. Both Ubuntu jobs passed all 41 Chromium tests, including footnote focus/source/streaming/failure cases and the exact-completion deletion wait: 232 distinct tests in this release. Older or failed runs do not verify this final source. The recovery-only follow-up's automatic main run is a separate full-tree check; its status is not inferred from the application-source run.
 
 No paid provider account or installed Ollama model was tested with real credentials. Protocol fixtures and simulation do not establish live-account/model compatibility. Do not silently use credentials or bill a provider during normal tests.
 
@@ -140,7 +161,7 @@ Signed-in ChatGPT/Grok/Gemini website transport is not implemented. This applica
 
 ## What to do next
 
-One suggested next bounded feature is safe, message-scoped internal footnote navigation with stable namespaced IDs and bounded keyboard targets. Preserve the link/HTML/image/source boundaries in ADR 0008. This is a suggestion, not an unfinished patch or authorization to add general relative-link navigation. Read the full current README checklist and relevant decisions before choosing the next scope. Live-account smoke tests remain separate and require explicit authorization for provider requests.
+One possible next bounded feature is optional safe code highlighting from the remaining README list. Specify a small fixed language set, resource limits, inert token rendering, and plain-code/source fallback before choosing a parser or dependency. Preserve ADRs 0008/0012 and exact strings. This is a suggestion, not an unfinished patch or permission for executable grammars or automatic external resource loading. Read the full current checklist and relevant decisions before choosing scope. Live-account smoke tests remain separate and require explicit authorization for provider requests.
 
 1. Read current main and check whether newer commits supersede this checkpoint. Read any applicable `AGENTS.md` discovered in the new checkout; none existed in the recorded source tree.
 2. Read the README's complete TODO checklist, CONTRIBUTING, and the architecture decisions relevant to the intended change.
@@ -165,9 +186,9 @@ The complete implementation checklist belongs at the very end of README.md. Keep
 
 ## Checkout caveat
 
-This iteration reused `/workspace/scratch/066d1deae166/AIB_LLM_Built` after checking that its clean baseline tree exactly matched current main (`e7f088e8a7f877a3c82495961ccf60c81cfb7ac3`). No applicable AGENTS.md was found. Source originally came through the authorized GitHub connection after the conventional clone endpoint was unavailable.
+This iteration reused `/workspace/scratch/066d1deae166/AIB_LLM_Built` after checking that its clean baseline tree exactly matched current main (`807c32a9c5295c7f147e8a80f89e65119001b310`). No applicable AGENTS.md was found. Source originally came through the authorized GitHub connection after the conventional clone endpoint was unavailable.
 
-Local Git history is an independent snapshot, not a clone of remote history. Local application/test commit `87018c066d5c1096fd7c24b9810b7e202919743c` and remote application/test commit `fe5096471d33a5ae1a02f7c4a5ea4fb7ef8ae161` share tree `6052c74d345109e5f7ec1b9aa1f5478a3a1ec779`. Publishing uses actual remote parents and fast-forward refs; never force-push the snapshot or assume a normal pull can reconcile it. Preserve/compare exact trees before reconciling metadata.
+Local Git history is an independent snapshot, not a clone of remote history. Local application/test commit `9c9aa5942043f4285bfaaca806d02c06e0d05a2d` and remote application/test commit `789b669e1a574488f479472ff6c459b68a0a26db` share tree `85e4189f8ec10618221125f8937631dc42362e53`. Publishing uses actual remote parents and fast-forward refs; never force-push the snapshot or assume a normal pull can reconcile it. Preserve/compare exact trees before reconciling metadata.
 
 Application feature/test changes are committed and published to main with actual remote parents retained. This final recovery-only document follows that verified source. No uncommitted feature work or pending required check is carried over. The truncated local browser runtime remains unavailable; browser verification was completed through CI. No real data, credentials, generated assets, or test output is committed.
 
@@ -184,14 +205,15 @@ Application feature/test changes are committed and published to main with actual
 - `src/server/http.ts`: HTTP contracts and request validation.
 - `src/server/providers.ts` and `src/server/live-providers.ts`: provider interfaces, simulation, live adapters, and model prompt boundaries.
 - `src/client/App.tsx`: main interface, selection reconciliation, composer, settings, and management flows.
-- `src/client/MarkdownText.tsx`, `MessageText.tsx`, `CopyButton.tsx`, and `message-links.ts`: message presentation, fallback, copying, and URL policy.
+- `src/client/MarkdownText.tsx`, `MessageText.tsx`, `CopyButton.tsx`, `message-links.ts`, and `message-footnotes.ts`: message presentation, fallback, copying, URL policy, and scoped footnote graph/focus.
 - `tests/connections.test.ts`: coordinator/greeting probes, native provider envelopes, scope, cancellation, limits, and no-state-change coverage.
 - `tests/ui/connections.spec.ts`: simulation/saved-settings/narrow layout and greeting-success/coordinator-failure/explicit-success flows.
 - `tests/rendering.test.ts`: adversarial rendering and source-retention coverage.
+- `tests/ui/footnotes.spec.ts`: isolated focus, URL/history, source, bounds, spoofing, streaming, failure, and provenance coverage.
 - `tests/ui/conversation.spec.ts`: Chromium workflows, including the send/refresh race regression.
 - `tests/ui/isolated-service.ts`: isolated production-service restart fixture.
 - `playwright.config.ts`: fresh per-run test data and optional `AIB_BROWSER_PATH`.
-- `docs/architecture/0001-language-and-runtime.md` through `0011-panel-layout.md`: architecture decisions.
+- `docs/architecture/0001-language-and-runtime.md` through `0012-message-footnotes.md`: architecture decisions.
 - `.github/workflows/ci.yml`: six-job Node/platform matrix.
 
 Supported Node engine range is `>=24.15.0 <25 || >=26.10.0 <27`; `.nvmrc` selects 26.10.0. Use the lockfile. Do not silently upgrade dependencies or change the runtime range.
