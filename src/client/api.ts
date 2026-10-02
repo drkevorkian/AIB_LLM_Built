@@ -11,6 +11,7 @@ import type {
   AddAgentInput,
   ConnectionTestKind,
   ConnectionTestResult,
+  RoomActivity,
 } from '../shared/contracts.js';
 
 let tokenPromise: Promise<string> | null = null;
@@ -118,6 +119,8 @@ export const api = {
     (await request('/rooms', { signal })).json() as Promise<RoomSummary[]>,
   room: async (id: string, signal?: AbortSignal) =>
     (await request(`/rooms/${id}`, { signal })).json() as Promise<Room>,
+  activity: async (id: string, signal?: AbortSignal) =>
+    (await request(`/rooms/${id}/activity`, { signal })).json() as Promise<RoomActivity>,
   create: async (input: CreateRoomInput) =>
     (
       await request('/rooms', { method: 'POST', body: JSON.stringify(input) })

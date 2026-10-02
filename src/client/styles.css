@@ -1143,6 +1143,73 @@ p {
   font-size: 10px;
   line-height: 1.7;
 }
+.participant-queue {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.participant-queue summary {
+  cursor: pointer;
+  color: var(--text);
+  line-height: 1.6;
+}
+.participant-queue summary:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+}
+.queue-details h3 {
+  margin: 14px 0 8px;
+  font-size: 11px;
+}
+.queue-details p {
+  line-height: 1.7;
+  margin: 8px 0;
+}
+.queue-list,
+.queue-respondents {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.queue-entry {
+  border-left: 2px solid var(--line);
+  padding: 8px;
+  margin: 8px 0;
+  min-width: 0;
+}
+.queue-entry strong,
+.queue-entry small {
+  display: block;
+  line-height: 1.7;
+}
+.queue-entry small,
+.queue-observation {
+  color: var(--muted);
+}
+.queue-warning,
+.queue-reason {
+  color: var(--amber);
+}
+.queue-thread {
+  display: block;
+  text-align: left;
+  margin: 6px 0;
+  padding: 4px 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  font-size: 11px;
+}
+.queue-refresh {
+  white-space: normal;
+  text-align: left;
+  margin-top: 6px;
+  max-width: 100%;
+  font-size: 10px;
+}
 .job-error button {
   margin-top: 8px;
   font-size: 9px;

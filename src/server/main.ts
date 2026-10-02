@@ -5,6 +5,7 @@ import { RoomStore } from './store.js';
 import { ConversationEngine } from './engine.js';
 import { LiveProviders } from './live-providers.js';
 import { serve } from './http.js';
+import { applicationVersion } from '../shared/version.js';
 
 const defaultData =
   process.platform === 'win32'
@@ -41,7 +42,7 @@ try {
   throw error;
 }
 console.log(
-  `\nAI Conversation Room v0.7.0\nOpen http://127.0.0.1:${app.port}\nConfigure each participant to use a live provider or simulation.\nData: ${dataDir}\nWork continues while this service is running. Pause or stop before closing a view.\n`,
+  `\nAI Conversation Room v${applicationVersion}\nOpen http://127.0.0.1:${app.port}\nConfigure each participant to use a live provider or simulation.\nData: ${dataDir}\nWork continues while this service is running. Pause or stop before closing a view.\n`,
 );
 let stopping = false;
 async function shutdown() {

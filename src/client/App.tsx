@@ -10,6 +10,7 @@ import type {
   Discussion,
   SendInput,
   AppSettings,
+  RoomActivity,
 } from '../shared/contracts.js';
 import { api, ApiError, watch } from './api.js';
 import { AgentSettings } from './AgentSettings.js';
@@ -17,6 +18,8 @@ import { SettingsPage } from './SettingsPage.js';
 import { searchWorkspaces, searchThreads, type WorkspaceView } from './search.js';
 import { CopyButton } from './CopyButton.js';
 import { MessageText } from './MessageText.js';
+import { ParticipantQueue, useRoomActivity } from './ParticipantQueue.js';
+import { applicationVersion } from '../shared/version.js';
 import {
   agentAtSnapshot,
   agentLabel,
@@ -115,6 +118,7 @@ export function App() {
   const threadChoiceVersion = useRef(0);
   const [tick, setTick] = useState(0);
   const [connected, setConnected] = useState(false);
+  const { activity, error: activityError } = useRoomActivity(room, tick);
   const [error, setError] = useState('');
   const [newRoom, setNewRoom] = useState(false);
   const [reply, setReply] = useState<Message | null>(null);
@@ -350,7 +354,7 @@ export function App() {
           {liveCount
             ? `${liveCount} LIVE AGENT${liveCount === 1 ? '' : 'S'} CONFIGURED`
             : 'SIMULATION'}
-          <span className="version">v0.7.0</span>
+          <span className="version">v{applicationVersion}</span>
         </div>
         <div className="header-actions">
           <span className={`connection ${connected ? 'online' : ''}`}>
@@ -821,6 +825,11 @@ export function App() {
               key={agent.id}
               agent={agent}
               room={room}
+              activity={activity}
+              activityError={activityError}
+              connected={connected}
+              onRefresh={() => setTick((value) => value + 1)}
+              onThread={chooseThread}
               onConfigure={() => setSettings(agent)}
               onRetry={async (id) => {
                 try {
@@ -1232,11 +1241,21 @@ function ResponseSet({ request, room }: { request: Request; room: Room }) {
 function AgentCard({
   agent,
   room,
+  activity,
+  activityError,
+  connected,
+  onRefresh,
+  onThread,
   onRetry,
   onConfigure,
 }: {
   agent: Agent;
   room: Room;
+  activity: RoomActivity | null;
+  activityError: boolean;
+  connected: boolean;
+  onRefresh: () => void;
+  onThread: (id: string) => void;
   onRetry: (id: string) => Promise<void>;
   onConfigure: () => void;
 }) {
@@ -1244,6 +1263,7 @@ function AgentCard({
   const active = jobs.find((j) => j.status === 'running');
   const queued = jobs.filter((j) => j.status === 'queued').length;
   const latest = jobs.at(-1);
+  const participant = activity?.participants.find((entry) => entry.agentId === agent.id);
   const request = room.requests.find((r) => r.id === latest?.requestId);
   const discussion = room.discussions.find((d) => d.id === latest?.discussionId);
   const retryable =
@@ -1267,13 +1287,30 @@ function AgentCard({
           </small>
         </div>
         <span className={`agent-state ${active ? 'working' : ''}`}>
-          {active ? 'generating' : queued ? `${queued} queued` : 'idle'}
+          {participant?.checkingConnection
+            ? 'testing connection'
+            : active
+              ? 'generating'
+              : participant?.finishing
+                ? 'finishing request'
+                : queued
+                  ? `${queued} queued`
+                  : 'idle'}
         </span>
       </div>
       <p>{agent.role}</p>
       <button className="configure-agent" onClick={onConfigure}>
         Configure {nameOf(room, agent.id)}
       </button>
+      <ParticipantQueue
+        name={nameOf(room, agent.id)}
+        activity={activity}
+        participant={participant}
+        error={activityError}
+        connected={connected}
+        onRefresh={onRefresh}
+        onThread={onThread}
+      />
       {latest?.error && (
         <div className="job-error">
           {latest.error}

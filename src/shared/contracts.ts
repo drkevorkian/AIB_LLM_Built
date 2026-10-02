@@ -304,6 +304,66 @@ export interface SendResult {
   discussionId?: string;
 }
 
+/** Transient inspection data; never stored in a room or used to authorize dispatch. */
+export type QueueBlocker =
+  | 'workspace_archived'
+  | 'workspace_paused'
+  | 'workspace_stopped'
+  | 'service_stopping'
+  | 'participant_inactive'
+  | 'participant_busy'
+  | 'connection_check'
+  | 'earlier_job'
+  | 'service_capacity'
+  | 'turn_limit'
+  | 'deadline_elapsed'
+  | 'discussion_closed'
+  | 'discussion_turn_limit';
+export interface ActivityJob {
+  jobId: string;
+  requestId: string;
+  threadId: string;
+  threadTitle: string | null;
+  kind: Job['kind'];
+  provider: ProviderKind | null;
+  model: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  deadlineAt: string | null;
+}
+export interface QueuedActivityJob extends ActivityJob {
+  position: number;
+  blockers: QueueBlocker[];
+}
+export interface ResponsePrerequisite {
+  requestId: string;
+  threadId: string;
+  threadTitle: string | null;
+  kind: 'synthesis' | 'coordinator';
+  status: 'collecting' | 'unresolved';
+  policy: Request['policy'];
+  received: number;
+  required: number;
+  deadlineAt: string | null;
+  respondents: { agentId: string; name: string; status: JobStatus | 'missing' }[];
+}
+export interface ParticipantActivity {
+  agentId: string;
+  checkingConnection: boolean;
+  /** A completed/aborted generation may still occupy a slot during transport cleanup. */
+  finishing: boolean;
+  running: ActivityJob[];
+  queued: QueuedActivityJob[];
+  prerequisites: ResponsePrerequisite[];
+}
+export interface RoomActivity {
+  roomId: string;
+  roomRevision: number;
+  observedAt: string;
+  capacity: { inUse: number; limit: number };
+  participants: ParticipantActivity[];
+}
+
 export function agentAtSnapshot(
   room: Pick<Room, 'agents' | 'snapshots'>,
   agentId: string,

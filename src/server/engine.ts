@@ -22,6 +22,7 @@ import type {
   ThreadSettingsInput,
   ConnectionTestKind,
   ConnectionTestResult,
+  RoomActivity,
 } from '../shared/contracts.js';
 import {
   agentActionSchema,
@@ -43,6 +44,7 @@ import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
 import { AgentActionError, ProviderError, ProviderRefusal } from './providers.js';
 import { RoomStore } from './store.js';
+import { inspectActivity } from './activity.js';
 
 interface EngineOptions {
   now?: () => Date;
@@ -129,6 +131,17 @@ export class ConversationEngine extends EventEmitter {
 
   connections(): ProviderStatus[] {
     return this.provider.connections?.() ?? [];
+  }
+
+  activity(roomId: string): RoomActivity {
+    return inspectActivity(this.store.get(roomId), {
+      activeAgentIds: new Set([...this.active.values()].map((task) => task.agentId)),
+      checkingAgentIds: new Set(this.connectionChecks.keys()),
+      inUse: this.active.size + this.connectionChecks.size,
+      limit: this.concurrency,
+      closed: this.closed,
+      now: this.now(),
+    });
   }
 
   settings(): AppSettings {
@@ -471,6 +484,7 @@ export class ConversationEngine extends EventEmitter {
       configRevision: agent.configRevision ?? 0,
       testedAt: this.timestamp(),
     });
+    this.changed(roomId);
     try {
       for await (const event of this.provider.generate(
         {
@@ -546,6 +560,7 @@ export class ConversationEngine extends EventEmitter {
       throw new AppError(400, message);
     } finally {
       this.connectionChecks.delete(agentId);
+      this.changed(roomId);
     }
   }
 
@@ -1156,6 +1171,7 @@ export class ConversationEngine extends EventEmitter {
       }
     } finally {
       this.active.delete(jobId);
+      this.changed(roomId);
     }
   }
 

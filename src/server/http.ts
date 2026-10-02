@@ -14,6 +14,7 @@ import {
 } from '../shared/contracts.js';
 import type { ConversationEngine } from './engine.js';
 import { AppError } from './errors.js';
+import { applicationVersion } from '../shared/version.js';
 
 export interface HttpOptions {
   port: number;
@@ -107,7 +108,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
       if (req.method === 'GET' && url.pathname === '/api/session') {
         json(res, 200, {
           token,
-          version: '0.7.0',
+          version: applicationVersion,
           transport: 'configured',
           continuesWithoutClient: true,
         });
@@ -204,11 +205,15 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         throw new AppError(405, 'Method not supported.');
       }
       const match =
-        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|export|agents|connection-test|discussion-stop|settings|archive))?$/.exec(
+        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|export|agents|connection-test|discussion-stop|settings|archive|activity))?$/.exec(
           url.pathname,
         );
       if (!match) throw new AppError(404, 'Endpoint not found.');
       const roomId = idSchema.parse(match[1]);
+      if (match[2] === 'activity' && req.method === 'GET') {
+        json(res, 200, engine.activity(roomId));
+        return;
+      }
       if (!match[2] && req.method === 'DELETE') {
         engine.deleteRoom(roomId);
         json(res, 200, { ok: true });

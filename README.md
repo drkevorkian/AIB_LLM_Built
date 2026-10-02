@@ -2,7 +2,7 @@
 
 A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** v0.8.0 adds an explicit coordinator capability test before Agent discussion. Safe Markdown/code formatting, original-source views, and message/code copying remain available. Workspace search, thread-content search and naming, and persistent archives are available. Workspaces support 1–8 independent participants, roster management in Settings, and persistent participant configuration history. Node.js 26.10 and Node 24 are supported. A human-selected coordinator can ask active peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. The application also includes saved conversation defaults, workspace editing, and confirmed workspace/thread deletion. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and browser flows are tested with fixtures; credentialed provider accounts and installed local models have not been verified in this workspace. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
+**Status:** v0.9.0 adds participant queue inspection with exact source threads, dispatch holds, shared capacity, and response prerequisites. Explicit coordinator capability tests remain available before Agent discussion. Safe Markdown/code formatting, original-source views, and message/code copying remain available. Workspace search, thread-content search and naming, and persistent archives are available. Workspaces support 1–8 independent participants, roster management in Settings, and persistent participant configuration history. Node.js 26.10 and Node 24 are supported. A human-selected coordinator can ask active peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. The application also includes saved conversation defaults, workspace editing, and confirmed workspace/thread deletion. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and browser flows are tested with fixtures; credentialed provider accounts and installed local models have not been verified in this workspace. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
 
 ## Overview
 
@@ -25,7 +25,7 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
 
-## Available in v0.8.0
+## Available in v0.9.0
 
 - Read Markdown headings, emphasis, lists, quotes, tables, disabled task checkboxes, and scrollable code blocks with language labels.
 - Switch each message between formatted and original-source views, copy its stored text, or copy an individual code block, including in archived workspaces.
@@ -43,14 +43,15 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Agent discussions: a selected coordinator chooses peers, collection policy, exact-message follow-ups, and when to finish, with 1–10 peer rounds and a 2–50 turn allowance reserved before starting.
 - Strict structured coordinator actions, one bounded correction for an invalid completed decision, repeated-question detection, and a per-discussion Stop control.
 - Persistent rooms/objectives/threads, streaming, frozen context inspection, reported token usage, provider request IDs, and Markdown export.
-- Per-agent queues, pause/resume/stop, explicit bounded retries, and restart recovery.
+- Per-agent queues with numbered inspection, exact source-thread navigation, frozen model bindings, dispatch holds, and synthesis/coordinator response prerequisites.
+- Pause/resume/stop, explicit bounded retries, and restart recovery.
 - A dedicated Settings page for theme, saved conversation defaults, workspace name/objective/turn limit, and participant connections.
 - Confirmed workspace/thread deletion, cancellation of affected work, removal of copied source context, and an empty state that survives service restart.
 - A responsive React interface with dark/light themes and a loopback-only service with validated local sessions.
 
 New rooms start in simulation so launch does not invoke or bill a provider. Configure participants explicitly to use real models. Missing credentials or failed live requests produce visible failures; they never fall back to simulation.
 
-See [v0.8.0 release notes](docs/releases/0.8.0.md), [coordinator testing contract](docs/architecture/0009-coordinator-capability-tests.md), [v0.7.0 release notes](docs/releases/0.7.0.md), [message presentation contract](docs/architecture/0008-message-presentation.md), [v0.6.0 release notes](docs/releases/0.6.0.md), [workspace organization contract](docs/architecture/0007-workspace-organization.md), [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
+See [v0.9.0 release notes](docs/releases/0.9.0.md), [queue inspection contract](docs/architecture/0010-participant-queue-inspection.md), [v0.8.0 release notes](docs/releases/0.8.0.md), [coordinator testing contract](docs/architecture/0009-coordinator-capability-tests.md), [v0.7.0 release notes](docs/releases/0.7.0.md), [message presentation contract](docs/architecture/0008-message-presentation.md), [v0.6.0 release notes](docs/releases/0.6.0.md), [workspace organization contract](docs/architecture/0007-workspace-organization.md), [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
 
 ![Agent discussion through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
 
@@ -63,6 +64,14 @@ Completed messages support Markdown headings, emphasis, lists, blockquotes, tabl
 Streaming text stays literal until the attempt ends. Completed, failed, cancelled, and interrupted attempts may show formatted text; their original status remains visible, and formatting does not make a partial answer complete. The formatter loads separately and falls back to readable source if it cannot load or render. Reload after fixing a module-load problem to restore formatting. Source-view and copy feedback are per-view and reset on reload.
 
 Raw HTML remains escaped text. Image references show alt-text placeholders without loading local or remote images. Only explicit HTTP(S) links without embedded credentials are clickable, opening in a new tab without an opener or referrer. Relative links, fragments, non-web schemes, and malformed/unsafe destinations remain labels. Links never open automatically. These rules also apply to LLM-authored messages. Formatting has no routing or execution authority; frozen context, literal search previews, and exports keep the original text. Attachment upload/previews, mathematical typesetting, Mermaid rendering, internal footnote navigation, and code highlighting remain planned. An exported transcript is Markdown source; other viewers have their own rendering rules.
+
+## Inspecting participant queues
+
+Expand **Inspect queue** on a participant card to see its running generation and queued entries in stored order. Each entry names its source thread, frozen provider/model, queue time, and applicable response deadline. **Open thread** selects that exact conversation while preserving the composer draft. Queue inspection only reads state; use the existing Pause, Resume, Stop, or explicit Retry controls to change execution.
+
+Specific reasons explain workspace pauses, another request or connection check for that participant, earlier queue entries, shared service capacity, and enforced turn/deadline limits. The service shares four generation slots across all workspaces and probes. Observation times and slot counts describe the current snapshot; readiness does not guarantee a start time or global fairness. A disconnected view identifies last-observed data, and **Refresh queue details** retries an unavailable read without calling a provider.
+
+**Response prerequisites** identifies synthesis or a coordinator continuation waiting for eligible completed answers, including the saved all/any/quorum threshold and each respondent's latest outcome. These are future continuations, not queued generations. Failures/refusals/interruption remain explicit; inspection never retries them. The barrier disappears when the engine actually creates its continuation, or when its work is stopped/deleted. Closed response sets' old deadlines do not prevent their queued synthesis from running. Archived queue details remain readable. Reordering, priorities, estimated starts, and richer dependency inspection remain planned.
 
 ## Planned capabilities
 
@@ -188,7 +197,7 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-The v0.7.0 suite includes 140 engine/service/provider-protocol/rendering tests and 28 Chromium UI tests, verified under both Node 26.10.0 and 24.19.0. Coverage includes Markdown safety, exact source/code copying, denied or missing clipboard APIs, split streams, failed partial code, formatter-load failure, delayed post-send history refresh and retained drafts/selection, source/context/export preservation, archives and explicit restoration, read-only archive commands, scoped renaming during active work, safe search previews, archive-only service restart, variable rosters, activation, configuration history, frozen retry bindings, independent duplicate names, cross-view drafts, and persistence/restart. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use a fresh temporary data directory for each run, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
+The v0.9.0 suite includes 184 engine/service/provider-protocol/rendering tests and 33 Chromium UI tests. Required verification covers both Node 26.10.0 and 24.19.0; exact completed checks and commit/run links are recorded in `LLM_Recovery_Prompt.md`. Coverage includes Markdown safety, exact source/code copying, denied or missing clipboard APIs, split streams, failed partial code, formatter-load failure, delayed post-send history refresh and retained drafts/selection, source/context/export preservation, archives and explicit restoration, read-only archive commands, scoped renaming during active work, safe search previews, archive-only service restart, variable rosters, activation, configuration history, frozen retry bindings, independent duplicate names, cross-view drafts, and persistence/restart. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use a fresh temporary data directory for each run, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
 
 To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. Use `[simulate:follow-up]` in an agent discussion to demonstrate a second round targeting the first peer’s exact answer. These markers belong to simulation and have no special behavior in live providers.
 
@@ -196,7 +205,7 @@ To exercise failure handling in simulation, include `[simulate:fail]`, `[simulat
 
 The rest of this README specifies the full target design. The checked TODO items at the end record completed work; unchecked items remain planned.
 
-The v0.7.0 build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each workspace has 1–8 participant identities, including inactive identities; at least one stays active. Their names, roles, providers, and models are editable. The service runs at most four generations concurrently and one per participant.
+The current build supports live text-generation API calls, human-directed requests/updates, synthesis, fixed relays, and bounded coordinator discussions. The selected coordinator can ask peers and finish through validated structured actions. Peers answer without delegation permission. Coordinators cannot change identity, permissions, limits, or room controls. Nested delegation, autonomous tools, and open-ended conferences are not implemented. Each workspace has 1–8 participant identities, including inactive identities; at least one stays active. Their names, roles, providers, and models are editable. The service runs at most four generations concurrently and one per participant.
 
 All messages are room-visible. All/any/quorum are the implemented collection policies. Timeout cancels unfinished work for the affected request and pauses the room; deadlines continue while paused. Each provider also has a connection timeout. Reported usage is stored per attempt; monetary cost estimates and enforced token/cost budgets are not implemented.
 
@@ -439,7 +448,7 @@ Implement domain contracts and a deterministic fake provider before live integra
 
 Contributions should explain the behavior changed, its reason, relevant failure cases, and validation. New routing or recovery behavior requires tests of its observable guarantees. No feature is complete solely because its happy path works once.
 
-TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. v0.5.0 adds variable participant rosters, activation, and configuration history. v0.6.0 adds workspace/thread search, thread renaming, and workspace archive/restore. v0.7.0 adds safe Markdown/code presentation, original-source views, and copy controls. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
+TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. v0.5.0 adds variable participant rosters, activation, and configuration history. v0.6.0 adds workspace/thread search, thread renaming, and workspace archive/restore. v0.7.0 adds safe Markdown/code presentation, original-source views, and copy controls. v0.8.0 adds coordinator capability checks; v0.9.0 adds read-only participant queue inspection. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
 
 ## Delivery milestones
 
@@ -454,7 +463,7 @@ TypeScript, React, Node 24, SQLite, and local browser operation were selected fo
 
 ## Complete implementation TODO checklist
 
-This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.8.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
+This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.9.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
 
 ### 1. Product scope and decisions
 
@@ -528,7 +537,7 @@ This is the complete implementation checklist for the scope described above. Che
 - [ ] Add per-provider and per-workspace concurrency limits.
 - [ ] Implement priorities, fair queues, and starvation prevention.
 - [ ] Represent dependencies explicitly and detect cycles.
-- [ ] Explain blocked tasks and missing prerequisites in the UI.
+- [ ] Explain blocked tasks and missing prerequisites in the UI (v0.9.0 shows queued dispatch holds and synthesis/coordinator response barriers; general dependency graphs and cycle diagnostics remain).
 - [x] Implement deadlines using restart-safe timestamps and monotonic elapsed timers where appropriate.
 - [ ] Implement bounded retries with backoff and jitter for eligible errors.
 - [ ] Distinguish retryable failure from uncertain remote acceptance.
@@ -625,7 +634,7 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Implement message reply, thread creation, and linked-source navigation.
 - [ ] Show author, status, context revision, and artifact versions on messages.
 - [x] Show expected respondents, missing answers, deadlines, and collection outcomes.
-- [ ] Show agent queues and explain blocked work.
+- [x] Show agent queues and explain blocked work (v0.9.0 participant queues and response prerequisites; existing workflow cards retain blocked relay/discussion explanations).
 - [ ] Expose start/pause/resume/stop and keep stop controls readily accessible.
 - [ ] Add context, attempt, decision, and usage inspection views.
 - [x] Implement themes with primary corner radii at 0–4 px and no radius over 8 px.
@@ -924,3 +933,19 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Verify all native envelopes, completion/failure boundaries, HTTP scope, explicit retries, browser results, narrow layouts, and archive controls.
 - [ ] Add provider capability catalogs or durable capability records with explicit freshness and invalidation policies.
 - [ ] Verify live coordinator probes with credentialed accounts and installed local models (existing live smoke-test TODOs still apply).
+
+### 29. v0.9.0 participant queue inspection
+
+- [x] Expose authenticated read-only transient activity without room mutations, provider calls, turn use, or database migrations.
+- [x] Show running and numbered queued generations in stored per-participant order, retaining exact source threads and frozen model bindings.
+- [x] Explain participant occupancy, connection probes, earlier queue entries, shared capacity, workspace status, and enforced turn/deadline holds.
+- [x] Broadcast probe boundaries and released transport slots without persisting inspection history.
+- [x] Separate future synthesis/coordinator response prerequisites from real queued jobs using exact all/any/quorum thresholds and latest eligible attempts.
+- [x] Preserve failure/refusal/interruption, explicit retry, archive/deletion, restart, and original attribution boundaries.
+- [x] Navigate to exact source threads with plain safe labels while preserving drafts and explicit send-time selection guards.
+- [x] Scope snapshots to the selected workspace/revision; disclose disconnected, refreshing, and failed inspection with an explicit read-only refresh.
+- [x] Keep queue disclosures keyboard-focusable and bounded in both themes and narrow layouts.
+- [x] Correct header/session/startup version labels using one shared release value.
+- [x] Verify service scope, order, occupancy, prerequisites, original retry bindings, persistence/restart, browser navigation, stale-response rejection, and read recovery.
+- [ ] Add queue reordering, priorities, fair global allocation, or estimated start times only after specifying scheduling authority and capacity policies.
+- [ ] Add broader dependency graphs/cycle explanations and large-queue pagination without changing existing grants or dispatch order.

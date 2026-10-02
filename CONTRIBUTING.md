@@ -24,6 +24,8 @@ Read [ADR 0008](docs/architecture/0008-message-presentation.md) before extending
 
 No project license has been selected yet. Do not add a license grant or publish a package without that decision.
 
+Read [ADR 0010](docs/architecture/0010-participant-queue-inspection.md) before changing queue inspection. Activity is a transient read-only projection, not scheduling authority or stored room data. Preserve original job order/bindings, anonymous shared capacity, real response barriers, and explicit freshness/failure states. Never turn inspection into dispatch, expiration, retry, or provider calls. Keep release labels in `src/shared/version.ts` consistent with the package version.
+
 Read [ADR 0009](docs/architecture/0009-coordinator-capability-tests.md) before changing connection probes. Greeting and coordinator checks share concurrency, timeout, archive/roster locks, and cancellation; they must not persist conversation work, consume room turns, or transmit history/objectives. Coordinator success requires a valid completed finish decision, without automatic repair, retry, or fallback. Keep results scoped to the tested configuration/time and retain explicit simulation labels.
 
 Provider tests use synthetic safe streams and loopback HTTP fixtures. The Playwright service explicitly clears cloud API-key variables so automated browser tests cannot call or bill cloud providers. Never use a real key in a protocol fixture, checked-in transcript, screenshot, or test expectation. Credentialed provider smoke tests are separate, explicitly invoked checks whose model IDs and date must be recorded without keys.
