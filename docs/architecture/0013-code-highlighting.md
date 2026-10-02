@@ -1,0 +1,31 @@
+# ADR 0013: Optional bounded code highlighting
+
+Status: accepted for v0.12.0. Extends [ADR 0008](0008-message-presentation.md) and preserves [ADR 0012](0012-message-footnotes.md).
+
+## Decision
+
+Code blocks stay plain by default. An explicit native button toggles highlighting for one mounted block and exposes its state through `aria-pressed`, with an application-owned `aria-controls` target. Enter and Space activate it; the scrollable code remains keyboard-focusable. Choosing a different theme retains the choice. Source/formatted toggles and reload remount plain blocks. A choice applies only to its exact code text and language, without storage, service preferences, room mutations, provider calls, or turn use.
+
+Language selection uses only a case-insensitive, fixed allowlist of explicit fence labels: `javascript`/`js`, `typescript`/`ts`, `json`, and `python`/`py`. Labels are bounded to 50 characters. There is no content inference. Unlabeled or indented code stays plain; supported-looking text cannot select a language. Unknown labels, including prototype-property names, cannot select a grammar. Unsupported labeled blocks retain their label, complete code, copy control, disabled highlight control, and an application-authored notice.
+
+The application owns a small, forward-moving lexical scanner. It emits source offsets and fixed categories for plain text, keywords, strings, comments, numbers, JSON property names, and punctuation. Keyword lists and sticky numeric patterns are static application code. Source text cannot define regular expressions, grammar rules, modules, attributes, styles, or handlers. No new dependencies or grammar fetches are introduced. The scanner does not evaluate, import, validate, or execute code.
+
+This is an approximate reading aid rather than a full language parser. JavaScript template strings and Python triple-quoted strings remain whole string tokens; template interpolation, regex literals, Python prefixes, contextual keywords, and semantic types are not fully parsed. Invalid or unfinished syntax stays readable. HTML, JSX/TSX, shell, and other languages are unsupported. The primary lexical references are [JavaScript lexical grammar](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Lexical_grammar), [Python lexical analysis](https://docs.python.org/3/reference/lexical_analysis.html), and [RFC 8259 JSON](https://www.rfc-editor.org/rfc/rfc8259).
+
+## Trust, resource limits, and fallback
+
+Each block is limited to 20,000 UTF-16 code units, 1,000 lines, and 2,000 coalesced token runs, including plain runs. CRLF counts as one line break; CR, LF, Unicode line separator, and Unicode paragraph separator count as boundaries. A final line break adds no extra empty line. Character and line limits are checked before scanning; the run limit stops token construction. Adjacent categories coalesce, the cursor advances, and no recursion or source-selected pattern is used. These limits bound highlighting work and output spans, not the entire Markdown parser or long-history rendering.
+
+Over-limit or unavailable highlighting shows the entire original parsed code as plain text with a fixed notice. No highlighted prefix or code truncation is retained. Copy code remains available and copies that complete parsed string, independently of presentation. Markdown parsing can normalize code line endings and add a final newline, as before. Copy message, source view, persisted bodies, frozen provider context, literal search, and exports retain the exact original message body.
+
+Only fixed application classes are rendered on spans with React text children; plain runs remain text. No generated HTML or source properties are spread into the DOM. React escaping preserves hostile markup as readable text, consistent with the [React DOM raw-HTML security guidance](https://react.dev/reference/react-dom/components/common#dangerously-setting-the-inner-html). Highlighting cannot navigate, load resources, execute a code sample, send a message, retry a job, or elevate a failed partial answer to completion. The ordinary link, HTML, image, and footnote policies remain in force.
+
+Streaming remains literal until the attempt ends. Completed and terminal partial messages may opt into highlighting without changing completion/status or reply eligibility. Archived workspaces permit reading and copying without conversation mutations. Scanner failure retains plain code; a failed formatter module retains literal source and existing copy controls. There are no migrations, permissions, provider-adapter changes, runtime-range changes, or dependency updates.
+
+Colors reuse the existing dark/light theme variables. All six token categories meet the [WCAG normal-text contrast minimum](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html) against the code background in both existing themes. That targeted check does not complete the broader application accessibility/contrast or assistive-technology audit.
+
+## Validation and remaining scope
+
+Nine highlighting tests cover aliases, prototype names, plain defaults, language-specific tokens, exact range concatenation, Unicode, hostile markup, unfinished syntax, all three resource boundaries, deterministic mixed inputs, escaped React output, and token contrast. Existing provenance coverage also renders highlighted routing-looking code while checking unchanged room records and source/context/search/export. Three isolated production-service Chromium flows cover keyboard toggles and per-block isolation, exact code/message copying, footnote focus, narrow scrolling, both themes, source reset, archive/reload, resource fallbacks, hostile code, split HTTP streams, explicit completion, failed partial status, and frozen context. Formatter-module failure must still expose source without highlight controls.
+
+Automated browser services clear cloud credentials and use simulation or synthetic loopback HTTP protocols. They establish neither paid-provider availability nor installed local-model compatibility. Additional language families, full semantic parsing, broad accessibility/device testing, long-history performance, math, diagrams, and attachments remain separate work. This is a 0.x iteration: every README checklist item must be fully implemented and validated before version 1.

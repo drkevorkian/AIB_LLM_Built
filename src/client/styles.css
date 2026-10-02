@@ -877,6 +877,36 @@ p {
   tab-size: 2;
   line-height: 1.65;
 }
+.code-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.code-block .code-highlight-notice {
+  color: var(--amber);
+  font-size: 11px;
+  margin: 0;
+  padding: 6px 10px;
+}
+.code-block .code-keyword {
+  color: var(--violet);
+}
+.code-block .code-string {
+  color: var(--amber);
+}
+.code-block .code-property {
+  color: var(--teal);
+}
+.code-block .code-comment {
+  color: var(--muted);
+}
+.code-block .code-number {
+  color: var(--red);
+}
+.code-block .code-punctuation {
+  color: var(--body-text);
+}
 .markdown-table {
   overflow: auto;
   max-height: 420px;

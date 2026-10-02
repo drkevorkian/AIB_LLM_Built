@@ -344,6 +344,9 @@ test('a failed formatting module preserves readable source, copying, and convers
   await expect(message.locator('.message-literal')).toHaveText(source);
   await expect(message.locator('img')).toHaveCount(0);
   await expect(message.locator('.footnote-control')).toHaveCount(0);
+  await expect(
+    message.getByRole('button', { name: 'Toggle code highlighting', exact: true }),
+  ).toHaveCount(0);
   await message.getByRole('button', { name: 'Copy message', exact: true }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(source);
   await page.getByLabel('Message', { exact: true }).fill('A second update remains usable.');

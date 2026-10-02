@@ -1,7 +1,7 @@
 import { memo, useId, useMemo, useRef, type ReactNode } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { CopyButton } from './CopyButton.js';
+import { CodeBlock } from './CodeBlock.js';
 import { safeMessageUrl } from './message-links.js';
 import { focusFootnote, messageFootnotes } from './message-footnotes.js';
 
@@ -83,17 +83,7 @@ const components: Components = {
           .find((value) => /^language-[a-z\d_+.-]{1,50}$/i.test(value))
           ?.slice(9)
       : undefined;
-    return (
-      <div className="code-block">
-        <div className="code-heading">
-          <span>{language || 'Plain text'}</span>
-          <CopyButton text={text} label="Copy code" />
-        </div>
-        <pre tabIndex={0} aria-label={language ? `${language} code` : 'Code block'}>
-          <code>{text}</code>
-        </pre>
-      </div>
-    );
+    return <CodeBlock text={text} language={language} />;
   },
   table: ({ children }) => (
     <div className="markdown-table" tabIndex={0} role="region" aria-label="Message table">
