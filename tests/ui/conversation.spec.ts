@@ -478,7 +478,7 @@ test('a delayed post-send refresh preserves the next draft and keeps consecutive
       await expect(page.locator('.send-button')).toHaveText('Sending…');
       await page.getByRole('button', { name: /^All messages(?: \d+)?$/ }).click();
       releaseAcknowledgement();
-      await expect(page.locator('.send-button')).toBeEnabled();
+      await expect(page.locator('.send-button')).toHaveText('Send');
       await expect(page.getByRole('heading', { name: title, exact: true, level: 1 })).toBeVisible();
       await expect(page.locator('.message.update')).toHaveCount(7);
     } finally {
