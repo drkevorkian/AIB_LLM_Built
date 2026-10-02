@@ -69,7 +69,7 @@ test('footnotes move keyboard focus within their own message and preserve source
   const f = await workspace(page);
   const source =
     'Evidence[^a], repeat[^a], and suffix[^a-2].\n\n[^a]: First exact note.\n[^a-2]: Second exact note.';
-  await page.getByRole('button', { name: 'All messages', exact: true }).click();
+  await page.getByRole('button', { name: /^All messages\b/ }).click();
   await send(page, f, source);
   await send(page, f, source);
   const messages = page.locator('.message.update');
@@ -152,7 +152,7 @@ test('footnotes move keyboard focus within their own message and preserve source
   await page.getByLabel('Workspace view').selectOption('archived');
   await page.getByRole('button', { name: f.title + ' Archived', exact: true }).click();
   await expect(page.getByRole('heading', { name: f.title, exact: true, level: 1 })).toBeVisible();
-  await page.getByRole('button', { name: 'All messages', exact: true }).click();
+  await page.getByRole('button', { name: /^All messages\b/ }).click();
   await expect(messages.locator('.footnote-reference')).toHaveCount(6);
   const reloadedIds = await messages
     .locator('[id]')
@@ -165,7 +165,7 @@ test('forged footnote links cannot navigate or load resources and excessive refe
   page,
 }) => {
   const f = await workspace(page);
-  await page.getByRole('button', { name: 'All messages', exact: true }).click();
+  await page.getByRole('button', { name: /^All messages\b/ }).click();
   await send(page, f, 'Real[^a].\n\n[^a]: Original note.');
   const first = page.locator('.message.update').first();
   const realReference = first.getByRole('button', {
@@ -256,7 +256,7 @@ test('streaming footnotes stay literal, then completed and failed partial answer
         })
       ).ok(),
     ).toBe(true);
-    await page.getByRole('button', { name: 'All messages', exact: true }).click();
+    await page.getByRole('button', { name: /^All messages\b/ }).click();
     await page.getByLabel('Message', { exact: true }).fill('Draft retained while inspecting.');
     await page.getByLabel('Message', { exact: true }).focus();
     await send(page, f, 'Give an answer with footnotes.', true);
