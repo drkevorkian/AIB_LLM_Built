@@ -1,4 +1,4 @@
-import { Component, Suspense, lazy, type ReactNode } from 'react';
+import { Component, Suspense, lazy, useId, type ReactNode } from 'react';
 
 const MarkdownText = lazy(() => import('./MarkdownText.js'));
 
@@ -36,6 +36,7 @@ export function MessageText({
   streaming?: boolean;
   placeholder?: string;
 }) {
+  const scopeId = useId();
   const literal = source || streaming || !text;
   return (
     <div
@@ -46,7 +47,7 @@ export function MessageText({
       ) : (
         <FormattingBoundary text={text}>
           <Suspense fallback={<span className="message-literal">{text}</span>}>
-            <MarkdownText text={text} />
+            <MarkdownText text={text} scopeId={scopeId} />
           </Suspense>
         </FormattingBoundary>
       )}

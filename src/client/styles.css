@@ -743,10 +743,12 @@ p {
 .message-body code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
-.message-markdown > :first-child {
+.message-markdown > :first-child,
+.formatted-message > :first-child {
   margin-top: 0;
 }
-.message-markdown > :last-child {
+.message-markdown > :last-child,
+.formatted-message > :last-child {
   margin-bottom: 0;
 }
 .message-markdown p,
@@ -797,6 +799,35 @@ p {
 .markdown-table:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 3px;
+}
+.message-footnotes {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 2px;
+}
+.message-footnotes li {
+  scroll-margin-block: 12px;
+}
+.footnote-control {
+  display: inline-flex;
+  color: var(--teal);
+  background: var(--teal-dim);
+  border-color: var(--teal-line);
+  padding: 2px 5px;
+  margin-inline: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  vertical-align: baseline;
+}
+.footnote-reference:focus,
+.message-footnotes li:focus {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+}
+.message-footnotes .footnote-notice {
+  color: var(--amber);
+  margin: 12px 0;
+  font-size: 11px;
 }
 .message-markdown hr {
   border: none;

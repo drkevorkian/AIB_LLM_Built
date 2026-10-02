@@ -332,7 +332,8 @@ test('a failed formatting module preserves readable source, copying, and convers
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.route('**/assets/MarkdownText-*.js', (route) => route.abort());
   await createRoom(page);
-  const source = '# Still readable\n\n```js\nconst value = "<img>";\n```';
+  const source =
+    '# Still readable\n\n```js\nconst value = "<img>";\n```\n\nOriginal[^a].\n\n[^a]: Exact footnote source.';
   await page.getByLabel('Message type').selectOption('update');
   await page.getByLabel('Message', { exact: true }).fill(source);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -342,6 +343,7 @@ test('a failed formatting module preserves readable source, copying, and convers
   );
   await expect(message.locator('.message-literal')).toHaveText(source);
   await expect(message.locator('img')).toHaveCount(0);
+  await expect(message.locator('.footnote-control')).toHaveCount(0);
   await message.getByRole('button', { name: 'Copy message', exact: true }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(source);
   await page.getByLabel('Message', { exact: true }).fill('A second update remains usable.');
@@ -1094,6 +1096,7 @@ test('thread deletion confirms the target, cancels an active discussion, preserv
   await page.reload();
   await expect(page.locator('.thread-entry')).toHaveCount(1);
   await expect(page.locator('.message.answer')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: title, level: 1, exact: true })).toBeVisible();
   const { token } = (await (await page.request.get('/api/session')).json()) as { token: string };
   const rooms = (await (
     await page.request.get('/api/rooms', { headers: { 'X-AIB-Token': token } })
@@ -1114,6 +1117,23 @@ test('thread deletion confirms the target, cancels an active discussion, preserv
     .getByLabel('Message', { exact: true })
     .fill('Consult after deleting the earlier discussion.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
+  // Streamed simulation can outlast the default five-second assertion under CI load.
+  // Wait for this exact request's authoritative completion before deleting its context.
+  await expect
+    .poll(
+      async () => {
+        const { room } = await workspaceRecord(page, title);
+        const request = room.requests.find(
+          (r) =>
+            room.messages.find((m) => m.id === r.messageId)?.body ===
+            'Consult after deleting the earlier discussion.',
+        );
+        return room.jobs.find((job) => job.requestId === request?.id && job.kind === 'synthesis')
+          ?.status;
+      },
+      { timeout: 10000 },
+    )
+    .toBe('completed');
   await expect(
     page.locator('.message.synthesis').getByRole('button', { name: 'Reply to AI A', exact: true }),
   ).toBeEnabled();
