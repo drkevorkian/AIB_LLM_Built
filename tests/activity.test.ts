@@ -356,11 +356,15 @@ test('defensive archive, inactive, and exhausted-limit holds remain explanations
 
 test('disk recovery keeps queued order, labels interrupted prerequisites, and never replays on inspection', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'aib-activity-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
   const path = join(directory, 'rooms.sqlite');
   let store = new RoomStore(path);
   let provider = new ControlledProvider();
   let engine = new ConversationEngine(store, provider, { autoSchedule: false });
+  t.after(() => {
+    engine.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
   const room = engine.createRoom({ title: 'Recovery', objective: '' });
   engine.send(room.id, command([room.agents[1]!.id], { synthesisAgentId: room.agents[0]!.id }));
   const second = engine.send(room.id, command([room.agents[1]!.id]));
@@ -371,10 +375,6 @@ test('disk recovery keeps queued order, labels interrupted prerequisites, and ne
   store = new RoomStore(path);
   provider = new ControlledProvider();
   engine = new ConversationEngine(store, provider, { autoSchedule: false });
-  t.after(() => {
-    engine.close();
-    store.close();
-  });
   const before = store.get(room.id);
   const activity = engine.activity(room.id);
   assert.equal(activity.participants[1]!.running.length, 0);
