@@ -437,6 +437,54 @@ test('a delayed post-send refresh preserves the next draft and keeps consecutive
     ).json()) as Room;
     expect(selected.messages).toHaveLength(5);
     expect(selected.messages.at(-1)!.threadId).toBe(accepted.threads[0]!.id);
+    await expect(page.locator('.send-button')).toHaveText('Send');
+    await page.getByRole('button', { name: 'All messages' }).click();
+    gate = new Promise<void>((done) => {
+      release = done;
+    });
+    await page.getByLabel('Message', { exact: true }).fill('New thread from All messages.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.locator('.send-button')).toHaveText('Updating…');
+    // Choosing the already-selected null thread is still an explicit human choice.
+    await page.getByRole('button', { name: 'All messages' }).click();
+    await page.getByLabel('Message', { exact: true }).fill('Draft for All messages.');
+    release();
+    await expect(page.locator('.send-button')).toBeEnabled();
+    await expect(page.getByRole('heading', { name: title, exact: true, level: 1 })).toBeVisible();
+    await expect(page.locator('.message.update')).toHaveCount(6);
+    await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+      'Draft for All messages.',
+    );
+    const all = (await (
+      await page.request.get(`/api/rooms/${room.id}`, { headers })
+    ).json()) as Room;
+    expect(all.threads).toHaveLength(3);
+    expect(all.messages).toHaveLength(6);
+    let releaseAcknowledgement!: () => void;
+    const acknowledgement = new Promise<void>((done) => {
+      releaseAcknowledgement = done;
+    });
+    const messageUrl = new RegExp('/api/rooms/' + room.id + '/messages$');
+    await page.route(messageUrl, async (route) => {
+      const response = await route.fetch();
+      await acknowledgement;
+      await route.fulfill({ response });
+    });
+    try {
+      await page
+        .getByLabel('Message', { exact: true })
+        .fill('Navigation before send acknowledgment.');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect(page.locator('.send-button')).toHaveText('Sending…');
+      await page.getByRole('button', { name: 'All messages' }).click();
+      releaseAcknowledgement();
+      await expect(page.locator('.send-button')).toBeEnabled();
+      await expect(page.getByRole('heading', { name: title, exact: true, level: 1 })).toBeVisible();
+      await expect(page.locator('.message.update')).toHaveCount(7);
+    } finally {
+      releaseAcknowledgement();
+      if (!page.isClosed()) await page.unroute(messageUrl);
+    }
   } finally {
     release();
     if (!page.isClosed()) await page.unroute(roomUrl);

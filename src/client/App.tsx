@@ -112,6 +112,7 @@ export function App() {
   const [threadId, setThreadId] = useState<string | null>(null);
   const selectedThreadId = useRef<string | null>(null);
   selectedThreadId.current = threadId;
+  const threadChoiceVersion = useRef(0);
   const [tick, setTick] = useState(0);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState('');
@@ -181,6 +182,7 @@ export function App() {
   }, [tick]);
   useEffect(() => {
     setRoom(null);
+    threadChoiceVersion.current++;
     setThreadId(null);
     setReply(null);
     setInspect(null);
@@ -270,6 +272,7 @@ export function App() {
     }
   }
   function chooseThread(id: string | null) {
+    threadChoiceVersion.current++;
     setSettingsPage(false);
     setThreadId(id);
     setReply(null);
@@ -721,6 +724,7 @@ export function App() {
                     message={m}
                     room={room}
                     onReply={() => {
+                      threadChoiceVersion.current++;
                       setReply(m);
                       setThreadId(m.threadId);
                     }}
@@ -778,10 +782,11 @@ export function App() {
               threadId={threadId}
               reply={reply}
               onClearReply={() => setReply(null)}
-              onSent={async (id) => {
+              onSendStart={() => threadChoiceVersion.current}
+              onSent={async (id, sentChoiceVersion) => {
                 const priorThread = selectedThreadId.current;
                 if (selectedRoomId.current === room.id) {
-                  setReply(null);
+                  if (threadChoiceVersion.current === sentChoiceVersion) setReply(null);
                   follow.current = true;
                 }
                 try {
@@ -790,7 +795,10 @@ export function App() {
                   setRoom((current) =>
                     current?.id === next.id && current.revision > next.revision ? current : next,
                   );
-                  if (selectedThreadId.current === priorThread)
+                  if (
+                    selectedThreadId.current === priorThread &&
+                    threadChoiceVersion.current === sentChoiceVersion
+                  )
                     setThreadId(next.threads.some((thread) => thread.id === id) ? id : null);
                 } catch {
                   if (selectedRoomId.current === room.id)
@@ -1291,6 +1299,7 @@ function Composer({
   threadId,
   reply,
   onClearReply,
+  onSendStart,
   onSent,
   onError,
 }: {
@@ -1299,7 +1308,8 @@ function Composer({
   threadId: string | null;
   reply: Message | null;
   onClearReply: () => void;
-  onSent: (threadId: string) => Promise<void>;
+  onSendStart: () => number;
+  onSent: (threadId: string, choiceVersion: number) => Promise<void>;
   onError: (error: string) => void;
 }) {
   const activeAgents = room.agents.filter(isAgentActive);
@@ -1383,6 +1393,7 @@ function Composer({
     onError('');
     clientId.current ??= crypto.randomUUID();
     try {
+      const sentChoiceVersion = onSendStart();
       const result = await api.send(room.id, {
         clientId: clientId.current,
         body,
@@ -1407,7 +1418,7 @@ function Composer({
       clientId.current = null;
       setRefreshing(true);
       setSending(false);
-      await onSent(result.threadId);
+      await onSent(result.threadId, sentChoiceVersion);
     } catch (e) {
       onError(errorText(e));
     } finally {

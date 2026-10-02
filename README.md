@@ -920,6 +920,7 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Leave stored history, snapshots, workflows, and consumed turns unchanged.
 - [x] Label simulation and scope results to the requested provider/model, configuration revision, and test time without persistent capability promises.
 - [x] Keep empty-peer output schemas valid without an empty enum while retaining engine routing checks.
+- [x] Preserve explicit thread/All messages/reply navigation during send submission and refreshed history, including a repeated selection of All messages.
 - [x] Verify all native envelopes, completion/failure boundaries, HTTP scope, explicit retries, browser results, narrow layouts, and archive controls.
 - [ ] Add provider capability catalogs or durable capability records with explicit freshness and invalidation policies.
 - [ ] Verify live coordinator probes with credentialed accounts and installed local models (existing live smoke-test TODOs still apply).
