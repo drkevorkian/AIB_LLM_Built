@@ -77,6 +77,42 @@ export const workspaceSettingsSchema = z.strictObject({
 export type WorkspaceSettingsInput = z.infer<typeof workspaceSettingsSchema>;
 export const workspaceArchiveSchema = z.strictObject({ archived: z.boolean() });
 export type WorkspaceArchiveInput = z.infer<typeof workspaceArchiveSchema>;
+export const maxBulkWorkspaces = 25;
+export const bulkWorkspaceSchema = z.strictObject({
+  action: z.enum(['archive', 'restore', 'delete']),
+  roomIds: z
+    .array(idSchema)
+    .min(1)
+    .max(maxBulkWorkspaces)
+    .refine((ids) => new Set(ids).size === ids.length, 'Select each workspace only once.'),
+});
+export const bulkWorkspaceTokenSchema = z.strictObject({ token: z.string().uuid() });
+export type BulkWorkspaceInput = z.infer<typeof bulkWorkspaceSchema>;
+export interface BulkWorkspacePreview {
+  token: string;
+  action: BulkWorkspaceInput['action'];
+  expiresAt: string;
+  targets: {
+    id: string;
+    title: string;
+    revision: number;
+    archived: boolean;
+    threads: number;
+    messages: number;
+    queued: number;
+    running: number;
+    workflows: number;
+    probes: number;
+    transports: number;
+    turnsUsed: number;
+    unchanged: boolean;
+    blockedReason: string | null;
+  }[];
+}
+export interface BulkWorkspaceResult {
+  action: BulkWorkspaceInput['action'];
+  roomIds: string[];
+}
 export const threadSettingsSchema = z.strictObject({
   title: z.string().trim().min(1).max(100),
 });

@@ -23,6 +23,9 @@ import type {
   ConnectionTestKind,
   ConnectionTestResult,
   RoomActivity,
+  BulkWorkspaceInput,
+  BulkWorkspacePreview,
+  BulkWorkspaceResult,
 } from '../shared/contracts.js';
 import {
   agentActionSchema,
@@ -39,6 +42,8 @@ import {
   workspaceArchiveSchema,
   threadSettingsSchema,
   connectionTestSchema,
+  bulkWorkspaceSchema,
+  bulkWorkspaceTokenSchema,
 } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
@@ -62,6 +67,14 @@ export class ConversationEngine extends EventEmitter {
   private timer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
   private concurrency: number;
+  private bulkPreviews = new Map<
+    string,
+    {
+      preview: BulkWorkspacePreview;
+      probes: (AbortController | undefined)[][];
+      transports: AbortController[][];
+    }
+  >();
 
   constructor(
     readonly store: RoomStore,
@@ -226,8 +239,13 @@ export class ConversationEngine extends EventEmitter {
     const room = this.store.get(roomId);
     this.store.delete(roomId);
     // Commit deletion before aborting. Abort is synchronous: late stream events see the signal.
+    this.abortDeletedRoom(room);
+    this.changed(roomId);
+  }
+
+  private abortDeletedRoom(room: Room): void {
     for (const [id, task] of this.active)
-      if (task.roomId === roomId) {
+      if (task.roomId === room.id) {
         task.abort.abort();
         this.active.delete(id);
       }
@@ -235,7 +253,122 @@ export class ConversationEngine extends EventEmitter {
       this.connectionChecks.get(agent.id)?.abort();
       this.connectionChecks.delete(agent.id);
     }
-    this.changed(roomId);
+  }
+
+  private bulkTransports(roomId: string): AbortController[] {
+    return [...this.active.values()]
+      .filter((task) => task.roomId === roomId)
+      .map((task) => task.abort);
+  }
+
+  private pruneBulkPreviews(): void {
+    const now = this.now().getTime();
+    for (const [token, saved] of this.bulkPreviews)
+      if (Date.parse(saved.preview.expiresAt) <= now) this.bulkPreviews.delete(token);
+  }
+
+  previewWorkspaces(raw: BulkWorkspaceInput): BulkWorkspacePreview {
+    if (this.closed) throw new AppError(409, 'The service is shutting down.');
+    const input = bulkWorkspaceSchema.parse(raw);
+    const rooms = input.roomIds.map((id) => this.store.get(id));
+    const probes = rooms.map((room) =>
+      room.agents.map((agent) => this.connectionChecks.get(agent.id)),
+    );
+    const transports = rooms.map((room) => this.bulkTransports(room.id));
+    const preview: BulkWorkspacePreview = {
+      token: randomUUID(),
+      action: input.action,
+      expiresAt: new Date(this.now().getTime() + 5 * 60 * 1000).toISOString(),
+      targets: rooms.map((room, i) => ({
+        id: room.id,
+        title: room.title,
+        revision: room.revision,
+        archived: Boolean(room.archivedAt),
+        threads: room.threads.length,
+        messages: room.messages.length,
+        queued: room.jobs.filter((job) => job.status === 'queued').length,
+        running: room.jobs.filter((job) => job.status === 'running').length,
+        workflows:
+          room.relays.filter((r) => ['running', 'blocked'].includes(r.status)).length +
+          room.discussions.filter((d) => ['running', 'waiting', 'blocked'].includes(d.status))
+            .length,
+        probes: probes[i]!.filter(Boolean).length,
+        transports: transports[i]!.length,
+        turnsUsed: room.turnsUsed,
+        unchanged:
+          input.action !== 'delete' && Boolean(room.archivedAt) === (input.action === 'archive'),
+        blockedReason:
+          input.action === 'archive' &&
+          !room.archivedAt &&
+          (hasPendingWork(room) || probes[i]!.some(Boolean))
+            ? 'Finish or stop pending work and finish connection tests before archiving.'
+            : null,
+      })),
+    };
+    this.pruneBulkPreviews();
+    if (this.bulkPreviews.size >= 50)
+      this.bulkPreviews.delete(this.bulkPreviews.keys().next().value!);
+    this.bulkPreviews.set(preview.token, { preview: structuredClone(preview), probes, transports });
+    return preview;
+  }
+
+  cancelWorkspacePreview(raw: { token: string }): void {
+    this.bulkPreviews.delete(bulkWorkspaceTokenSchema.parse(raw).token);
+  }
+
+  confirmWorkspaces(raw: { token: string }): BulkWorkspaceResult {
+    if (this.closed) throw new AppError(409, 'The service is shutting down.');
+    const { token } = bulkWorkspaceTokenSchema.parse(raw);
+    this.pruneBulkPreviews();
+    const saved = this.bulkPreviews.get(token);
+    if (!saved)
+      throw new AppError(409, 'Preview expired or unavailable. Preview the selection again.');
+    // Consume once, including on failure: an ambiguous response must never repeat a mutation.
+    this.bulkPreviews.delete(token);
+    const { preview } = saved;
+    const ids = preview.targets.map((target) => target.id);
+    const removed = this.store.applyBatch(ids, preview.action === 'delete', (rooms) => {
+      for (let i = 0; i < rooms.length; i++) {
+        const room = rooms[i]!;
+        const transports = this.bulkTransports(room.id);
+        if (
+          room.revision !== preview.targets[i]!.revision ||
+          room.agents.some(
+            (agent, index) => this.connectionChecks.get(agent.id) !== saved.probes[i]![index],
+          ) ||
+          transports.length !== saved.transports[i]!.length ||
+          transports.some((abort, index) => abort !== saved.transports[i]![index])
+        )
+          throw new AppError(
+            409,
+            'A selected workspace or its activity changed. Preview the selection again.',
+          );
+        if (
+          preview.action === 'archive' &&
+          !room.archivedAt &&
+          (hasPendingWork(room) || room.agents.some((agent) => this.connectionChecks.has(agent.id)))
+        )
+          throw new AppError(409, 'Finish or stop pending work before archiving the selection.');
+      }
+      if (preview.action !== 'delete')
+        for (const room of rooms) {
+          const archived = preview.action === 'archive';
+          if (Boolean(room.archivedAt) === archived) continue;
+          room.archivedAt = archived ? this.timestamp() : null;
+          room.status = 'paused';
+          this.audit(
+            room,
+            archived ? 'room.archived' : 'room.restored',
+            archived
+              ? 'Workspace archived in a confirmed batch. History and consumed turns retained.'
+              : 'Workspace restored in a confirmed batch. Resume explicitly before running work.',
+          );
+        }
+      return rooms;
+    });
+    if (preview.action === 'delete') for (const room of removed) this.abortDeletedRoom(room);
+    for (const id of ids) this.changed(id);
+    return { action: preview.action, roomIds: ids };
   }
 
   deleteThread(roomId: string, threadId: string): Room {
@@ -951,6 +1084,7 @@ export class ConversationEngine extends EventEmitter {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.bulkPreviews.clear();
     if (this.timer) clearInterval(this.timer);
     for (const task of this.active.values()) task.abort.abort();
     for (const abort of this.connectionChecks.values()) abort.abort();

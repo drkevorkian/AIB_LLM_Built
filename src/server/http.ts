@@ -11,6 +11,7 @@ import {
   stopDiscussionSchema,
   appSettingsSchema,
   agentLabel,
+  bulkWorkspaceTokenSchema,
 } from '../shared/contracts.js';
 import type { ConversationEngine } from './engine.js';
 import { AppError } from './errors.js';
@@ -158,6 +159,28 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
           201,
           engine.createRoom((await body(req)) as Parameters<typeof engine.createRoom>[0]),
         );
+        return;
+      }
+      if (url.pathname === '/api/workspaces/bulk/preview') {
+        if (req.method !== 'POST') throw new AppError(405, 'Method not supported.');
+        json(
+          res,
+          200,
+          engine.previewWorkspaces(
+            (await body(req)) as Parameters<typeof engine.previewWorkspaces>[0],
+          ),
+        );
+        return;
+      }
+      if (url.pathname === '/api/workspaces/bulk/confirm') {
+        if (req.method !== 'POST') throw new AppError(405, 'Method not supported.');
+        json(res, 200, engine.confirmWorkspaces(bulkWorkspaceTokenSchema.parse(await body(req))));
+        return;
+      }
+      if (url.pathname === '/api/workspaces/bulk/preview-cancel') {
+        if (req.method !== 'POST') throw new AppError(405, 'Method not supported.');
+        engine.cancelWorkspacePreview(bulkWorkspaceTokenSchema.parse(await body(req)));
+        json(res, 200, { ok: true });
         return;
       }
       const threadMatch = /^\/api\/rooms\/([a-zA-Z0-9_-]+)\/threads\/([a-zA-Z0-9_-]+)$/.exec(

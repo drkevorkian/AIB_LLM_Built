@@ -153,6 +153,42 @@ export class RoomStore {
     this.lease?.close();
   }
 
+  /** Validate every selected record before writing; commit the entire bounded batch together. */
+  applyBatch<T>(ids: string[], deleting: boolean, change: (rooms: Room[]) => T): T {
+    if (!ids.length || new Set(ids).size !== ids.length)
+      throw new AppError(400, 'Select distinct workspaces.');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const rooms = ids.map((id) => this.get(id));
+      const before = rooms.map((room) => ({
+        revision: room.revision,
+        payload: JSON.stringify(room),
+      }));
+      const result = change(rooms);
+      for (let i = 0; i < rooms.length; i++) {
+        const room = rooms[i]!;
+        const prior = before[i]!;
+        if (!deleting && JSON.stringify(room) === prior.payload) continue;
+        room.revision = prior.revision + 1;
+        room.updatedAt = this.now().toISOString();
+        const write = deleting
+          ? this.db
+              .prepare('DELETE FROM rooms WHERE id = ? AND revision = ?')
+              .run(ids[i]!, prior.revision)
+          : this.db
+              .prepare('UPDATE rooms SET revision = ?, payload = ? WHERE id = ? AND revision = ?')
+              .run(room.revision, JSON.stringify(room), ids[i]!, prior.revision);
+        if (Number(write.changes) !== 1)
+          throw new AppError(409, 'Workspace changed; preview again.');
+      }
+      this.db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   private parse(payload: string): Room {
     const room = JSON.parse(payload) as Room;
     if (room.schemaVersion !== 1 || !Array.isArray(room.jobs) || !Array.isArray(room.snapshots)) {

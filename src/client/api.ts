@@ -12,6 +12,9 @@ import type {
   ConnectionTestKind,
   ConnectionTestResult,
   RoomActivity,
+  BulkWorkspaceInput,
+  BulkWorkspacePreview,
+  BulkWorkspaceResult,
 } from '../shared/contracts.js';
 
 let tokenPromise: Promise<string> | null = null;
@@ -61,6 +64,28 @@ async function request(path: string, options: RequestInit = {}, retry = true): P
 }
 
 export const api = {
+  previewWorkspaces: async (input: BulkWorkspaceInput, signal?: AbortSignal) =>
+    (
+      await request('/workspaces/bulk/preview', {
+        method: 'POST',
+        body: JSON.stringify(input),
+        signal,
+      })
+    ).json() as Promise<BulkWorkspacePreview>,
+  confirmWorkspaces: async (preview: BulkWorkspacePreview) =>
+    (
+      await request('/workspaces/bulk/confirm', {
+        method: 'POST',
+        body: JSON.stringify({ token: preview.token }),
+      })
+    ).json() as Promise<BulkWorkspaceResult>,
+  cancelWorkspacePreview: async (token: string) => {
+    await request('/workspaces/bulk/preview-cancel', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+      signal: AbortSignal.timeout(5000),
+    });
+  },
   settings: async (signal?: AbortSignal) =>
     (await request('/settings', { signal })).json() as Promise<AppSettings>,
   saveSettings: async (input: AppSettings) =>

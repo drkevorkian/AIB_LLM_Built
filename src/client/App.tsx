@@ -6,6 +6,8 @@ import type {
   Request,
   Room,
   RoomSummary,
+  BulkWorkspacePreview,
+  BulkWorkspaceResult,
   Relay,
   Discussion,
   SendInput,
@@ -27,6 +29,7 @@ import {
   isAgentActive,
   maxParticipants,
   hasPendingWork,
+  maxBulkWorkspaces,
 } from '../shared/contracts.js';
 
 type DeleteTarget =
@@ -123,6 +126,7 @@ export function App() {
   const { activity, error: activityError } = useRoomActivity(room, tick);
   const [error, setError] = useState('');
   const [newRoom, setNewRoom] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [reply, setReply] = useState<Message | null>(null);
   const [inspect, setInspect] = useState<Message | null>(null);
   const [settings, setSettings] = useState<Agent | null>(null);
@@ -468,6 +472,13 @@ export function App() {
               <option value="all">All workspaces</option>
             </select>
           </div>
+          <button
+            className="manage-workspaces"
+            disabled={!listLoaded || !rooms.length}
+            onClick={() => setBulkOpen(true)}
+          >
+            Manage workspaces
+          </button>
           <nav className="room-list" aria-label="Rooms">
             {visibleRooms.map((r) => (
               <div className="workspace-entry" key={r.id}>
@@ -983,6 +994,27 @@ export function App() {
           target={deleteTarget}
           onClose={() => setDeleteTarget(null)}
           onDelete={() => remove(deleteTarget)}
+        />
+      )}
+      {bulkOpen && (
+        <BulkWorkspaces
+          rooms={rooms}
+          onClose={() => {
+            setBulkOpen(false);
+            setTick((v) => v + 1);
+          }}
+          onApplied={(result) => {
+            if (result.action === 'delete') {
+              const remaining = rooms.filter((r) => !result.roomIds.includes(r.id));
+              setRooms(remaining);
+              if (roomId && result.roomIds.includes(roomId)) {
+                setRoom(null);
+                setRoomId(remaining.find((r) => !r.archivedAt)?.id ?? remaining[0]?.id ?? null);
+              }
+            }
+            setBulkOpen(false);
+            setTick((v) => v + 1);
+          }}
         />
       )}
       {archiveTarget && (
@@ -1839,6 +1871,237 @@ function Modal({
     </dialog>
   );
 }
+function BulkWorkspaces({
+  rooms,
+  onClose,
+  onApplied,
+}: {
+  rooms: RoomSummary[];
+  onClose: () => void;
+  onApplied: (result: BulkWorkspaceResult) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [view, setView] = useState<WorkspaceView>('all');
+  const [action, setAction] = useState<BulkWorkspacePreview['action']>('archive');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [preview, setPreview] = useState<BulkWorkspacePreview | null>(null);
+  const [phase, setPhase] = useState<'preview' | 'confirm' | null>(null);
+  const [error, setError] = useState('');
+  const [uncertain, setUncertain] = useState(false);
+  const loading = useRef<AbortController | null>(null);
+  const savedToken = useRef<string | null>(null);
+  const visible = searchWorkspaces(rooms, query, view);
+  const ids = selected.filter((id) => visible.some((r) => r.id === id));
+  const label = action === 'archive' ? 'Archive' : action === 'restore' ? 'Restore' : 'Delete';
+  function abandonPreview() {
+    loading.current?.abort();
+    loading.current = null;
+    if (savedToken.current) void api.cancelWorkspacePreview(savedToken.current).catch(() => {});
+    savedToken.current = null;
+  }
+  useEffect(() => () => abandonPreview(), []);
+  function close() {
+    if (phase === 'confirm') return;
+    abandonPreview();
+    onClose();
+  }
+  async function review() {
+    const abort = new AbortController();
+    loading.current = abort;
+    setPhase('preview');
+    setError('');
+    try {
+      const next = await api.previewWorkspaces({ action, roomIds: ids }, abort.signal);
+      if (abort.signal.aborted) return;
+      savedToken.current = next.token;
+      setPreview(next);
+    } catch (e) {
+      if (!abort.signal.aborted) setError(errorText(e));
+    } finally {
+      if (!abort.signal.aborted) setPhase(null);
+    }
+  }
+  async function apply() {
+    if (!preview) return;
+    setPhase('confirm');
+    setError('');
+    savedToken.current = null;
+    try {
+      onApplied(await api.confirmWorkspaces(preview));
+    } catch (e) {
+      const unknown = !(e instanceof ApiError) || e.status >= 500;
+      setUncertain(unknown);
+      setPreview(null);
+      setError(
+        unknown
+          ? 'The operation may have completed. Close and refresh workspaces to inspect the result before choosing another operation.'
+          : errorText(e),
+      );
+      setPhase(null);
+    }
+  }
+  return (
+    <Modal title="Manage workspaces" onClose={close}>
+      <div className="bulk-workspaces">
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        {preview ? (
+          <>
+            <h3>
+              {label} {preview.targets.length} selected workspaces?
+            </h3>
+            <p>
+              Only the workspaces listed below are included. This preview expires after five
+              minutes; changed workspaces require a new preview.
+            </p>
+            <ul className="bulk-preview">
+              {preview.targets.map((target) => (
+                <li key={target.id}>
+                  <strong>{target.title}</strong>
+                  <small>Workspace ID: {target.id}</small>
+                  <p>
+                    {target.archived ? 'Archived' : 'Active'} · {target.threads} threads ·{' '}
+                    {target.messages} messages · {target.turnsUsed} turns used
+                  </p>
+                  <p>
+                    {target.queued} queued jobs · {target.running} running jobs · {target.workflows}{' '}
+                    pending workflows · {target.probes} connection tests · {target.transports} open
+                    transports
+                  </p>
+                  {target.unchanged && (
+                    <p className="muted">
+                      Already in the requested state; this workspace stays unchanged.
+                    </p>
+                  )}
+                  {target.blockedReason && <p className="notice">{target.blockedReason}</p>}
+                </li>
+              ))}
+            </ul>
+            <p>
+              {action === 'delete'
+                ? 'Permanently remove these workspaces, their participants, threads, messages, and local history. Active work and connection tests are cancelled. This cannot be undone; provider submissions, exported files, and external backups remain outside this app. Logical deletion does not securely erase disk pages or refund usage.'
+                : action === 'archive'
+                  ? 'Retain full history and consumed turns. Finish or stop pending work and finish connection tests first. Archived workspaces cannot run work.'
+                  : 'Retain full history and consumed turns. Restored workspaces stay paused until explicitly resumed; cancelled or failed work is not replayed. Already active workspaces stay unchanged.'}
+            </p>
+            <div className="settings-actions">
+              <button autoFocus disabled={phase === 'confirm'} onClick={close}>
+                Cancel
+              </button>
+              <button
+                disabled={phase === 'confirm'}
+                onClick={() => {
+                  abandonPreview();
+                  setPreview(null);
+                }}
+              >
+                Back to selection
+              </button>
+              <button
+                className={action === 'delete' ? 'danger-button' : 'primary'}
+                disabled={
+                  phase === 'confirm' || preview.targets.some((target) => target.blockedReason)
+                }
+                onClick={() => void apply()}
+              >
+                {phase === 'confirm' ? 'Applying…' : `${label} selected workspaces`}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>
+              Select up to {maxBulkWorkspaces} exact workspaces, then review the names and effects
+              before confirming. Changing the filter clears selections.
+            </p>
+            <label>
+              Search managed workspaces
+              <input
+                type="search"
+                maxLength={200}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setSelected([]);
+                }}
+                disabled={Boolean(phase) || uncertain}
+              />
+            </label>
+            <label>
+              Managed workspace view
+              <select
+                value={view}
+                onChange={(e) => {
+                  setView(e.target.value as WorkspaceView);
+                  setSelected([]);
+                }}
+                disabled={Boolean(phase) || uncertain}
+              >
+                <option value="all">All workspaces</option>
+                <option value="active">Active workspaces</option>
+                <option value="archived">Archived workspaces</option>
+              </select>
+            </label>
+            <fieldset className="bulk-selection" disabled={Boolean(phase) || uncertain}>
+              <legend>Workspaces to manage</legend>
+              {visible.map((room) => (
+                <label key={room.id} className="bulk-choice">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select workspace ${room.title} (${room.id})`}
+                    checked={ids.includes(room.id)}
+                    disabled={!ids.includes(room.id) && ids.length >= maxBulkWorkspaces}
+                    onChange={(e) =>
+                      setSelected(
+                        e.target.checked ? [...ids, room.id] : ids.filter((id) => id !== room.id),
+                      )
+                    }
+                  />
+                  <span>
+                    {room.title}
+                    <small>
+                      {room.archivedAt ? 'Archived' : 'Active'} · {room.id}
+                    </small>
+                  </span>
+                </label>
+              ))}
+              {!visible.length && <p>No matching workspaces.</p>}
+            </fieldset>
+            <p className="muted">{ids.length} selected</p>
+            <label>
+              Bulk action
+              <select
+                value={action}
+                disabled={Boolean(phase) || uncertain}
+                onChange={(e) => setAction(e.target.value as BulkWorkspacePreview['action'])}
+              >
+                <option value="archive">Archive</option>
+                <option value="restore">Restore</option>
+                <option value="delete">Delete</option>
+              </select>
+            </label>
+            <div className="settings-actions">
+              <button autoFocus onClick={close}>
+                {uncertain ? 'Close and refresh workspaces' : 'Cancel'}
+              </button>
+              <button
+                className="primary"
+                disabled={Boolean(phase) || uncertain || !ids.length}
+                onClick={() => void review()}
+              >
+                {phase === 'preview' ? 'Loading preview…' : 'Preview selected workspaces'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function DeleteConfirmation({
   target,
   onClose,
