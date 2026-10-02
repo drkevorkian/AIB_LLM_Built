@@ -2033,6 +2033,7 @@ function BulkWorkspaces({
             <label>
               Managed workspace view
               <select
+                aria-label="Managed workspace view"
                 value={view}
                 onChange={(e) => {
                   setView(e.target.value as WorkspaceView);
@@ -2074,6 +2075,7 @@ function BulkWorkspaces({
             <label>
               Bulk action
               <select
+                aria-label="Bulk action"
                 value={action}
                 disabled={Boolean(phase) || uncertain}
                 onChange={(e) => setAction(e.target.value as BulkWorkspacePreview['action'])}
