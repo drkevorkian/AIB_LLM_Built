@@ -1,6 +1,6 @@
 # LLM Recovery Prompt
 
-Updated: 2026-10-02 (UTC). Application checkpoint: v0.11.0.
+Updated: 2026-10-02 (UTC). Application checkpoint: v0.12.0.
 
 This file is a durable handoff for a new chat or another LLM. Paste the whole file when repository access is unavailable, or use the launch prompt below when the receiving LLM can read GitHub. The current repository is authoritative if it has advanced beyond this checkpoint.
 
@@ -21,18 +21,18 @@ The chosen stack is TypeScript with a React/Vite client, a Node.js server, and S
 
 ## Saved checkpoint
 
-- Main baseline: `affe839f1d8e07aad0c2164923cf3e5a98b24162`, v0.10.0, tree `807c32a9c5295c7f147e8a80f89e65119001b310`.
-- Branch: `main`. Application version: `0.11.0`.
-- Most recent application/test commit: `789b669e1a574488f479472ff6c459b68a0a26db` — `Select counted All messages controls in footnote browser flows`.
-- Application/test Git tree: `85e4189f8ec10618221125f8937631dc42362e53`.
-- Validation branch: `codex/v0.11.0-message-footnotes-20261002`.
-- Exact application/test CI: https://github.com/drkevorkian/AIB_LLM_Built/actions/runs/36959769781
-- CI completed successfully for commit `789b669e1a574488f479472ff6c459b68a0a26db`: all six platform/runtime jobs green; all 41 Chromium tests passed on Ubuntu under both runtimes.
-- The bounded v0.11.0 iteration is complete and published. No unfinished feature patch, pending required application check, publication blocker, or selected v0.12.0 feature is carried over.
-- This recovery-only document follows the verified application/test commit. Its automatically triggered main CI is separate; the exact application CI above does not claim to verify the newer full documentation tree. Inspect current main's run independently if needed.
-- The user requires every README checklist item to be completed and validated before version 1. README, CONTRIBUTING, and this handoff retain that gate; versions stay on 0.x, including optional and verification/security/packaging/release work.
+- Main baseline: `25699bf6a26690d089312b2848dd123d8bbd3e29`, v0.11.0, tree `16fda6bbdf706a35d8ab690e919da0ec48f37a87`. Its automatic full-main CI `36960095604` was independently confirmed successful before this iteration.
+- Branch: `main`. Application version: `0.12.0`.
+- Most recent application/test commit: `37585977f9318bba2e1052f2d7a3ddcc1e6225bd` — `Scope browser feedback assertions to their intended controls`.
+- Application/test Git tree: `e3b9b1d4b65e55db2b523136839a4b587eb17d08`.
+- Validation branch: `codex/v0.12.0-code-highlighting-20261002`.
+- Exact application/test CI: https://github.com/drkevorkian/AIB_LLM_Built/actions/runs/36963375971
+- CI completed successfully for commit `37585977f9318bba2e1052f2d7a3ddcc1e6225bd`: all six platform/runtime jobs green; all 44 Chromium tests passed on Ubuntu under both supported runtimes.
+- The bounded v0.12.0 iteration is complete and published. No unfinished feature patch, pending required application check, publication blocker, or selected v0.13.0 feature is carried over.
+- This recovery-only document follows the verified application/test commit. Its automatically triggered main CI is a separate full-tree check; the application-source run above does not claim to verify the newer documentation tree. Inspect current main's run independently when resuming.
+- The user requires every README checklist item to be fully completed and validated before version 1. README, CONTRIBUTING, and this handoff retain that gate; versions stay on 0.x, including optional and verification/security/packaging/release work. No original checklist item was removed; the completed optional highlighting item changes state, and compound items with unfinished work remain unchecked.
 
-Current goal completed: the bounded v0.11.0 implementation, validation, publication, and recovery update. No second feature has been started. Read current main and select the next bounded unfinished README item.
+Current goal completed: the bounded v0.12.0 implementation, validation, publication, and recovery update. No second feature has been started. Read current main and select the next bounded unfinished README item.
 
 ## Working behavior already implemented
 
@@ -42,7 +42,7 @@ Current goal completed: the bounded v0.11.0 implementation, validation, publicat
 - Coordinator discussions with strict validated actions, frozen peer grants, 1–10 peer rounds, and a reserved 2–50 turn allowance. Invalid completed decisions permit one bounded correction; network failures do not receive that correction retry.
 - Persistent history, threads, response sets, streamed answers, frozen context inspection, reported token usage, provider request IDs, and Markdown export.
 - Per-participant queues with running/numbered queue inspection, source-thread links, dispatch holds, shared-slot occupancy, and separate synthesis/coordinator response prerequisites. A global generation limit of four, pause/resume/stop, explicit bounded retries, turn accounting, and restart recovery remain unchanged.
-- Safe Markdown/code/source presentation and exact message/code copying, now including labeled message-scoped footnote references/backlinks.
+- Safe Markdown/code/source presentation and exact message/code copying, with labeled message-scoped footnotes and optional bounded JavaScript/TypeScript/JSON/Python highlighting.
 - Settings for themes, conversation defaults, workspace name/objective/turn limits, and participant connections.
 - Desktop pointer/keyboard panel sizing with browser width preferences, Settings reset, responsive fitting, and independently collapsible navigation/participants on narrow screens.
 - Explicit greeting and coordinator capability probes, sharing scheduling limits/cancellation and leaving conversation state/turn usage unchanged.
@@ -52,7 +52,21 @@ Current goal completed: the bounded v0.11.0 implementation, validation, publicat
 
 Archive, deletion, retry, roster, search, and context guarantees are described in the architecture decisions. Inspect those documents before changing the relevant behavior.
 
-## Current iteration: safe footnote navigation
+## Current iteration: optional bounded code highlighting
+
+v0.12.0 keeps code plain by default and adds an explicit native per-block toggle with `aria-pressed`, an application-owned code target, and Enter/Space activation. Only explicit case-insensitive fences select a language: `javascript`/`js`, `typescript`/`ts`, `json`, and `python`/`py`. Labels are bounded to 50 characters; no content is guessed and prototype-property names cannot select a language. Unlabeled, indented, and unsupported code stays plain. Unsupported labeled blocks retain a disabled toggle, a fixed explanatory notice, and exact code copying.
+
+The small application-owned scanner emits offsets and fixed categories for plain text, keywords, strings, comments, numbers, JSON property names, and punctuation. React renders escaped source slices in application-owned spans, without generated HTML, source properties, executable grammar plugins, code evaluation, imports, remote resource loads, or new dependencies. This is approximate lexical presentation, not syntax validation or a full parser; regex literals, template interpolation, Python prefixes, contextual keywords, and semantic types are not fully parsed. Unsupported HTML, JSX/TSX, shell, and other languages are not inferred.
+
+Each block is limited to 20,000 UTF-16 code units, 1,000 lines, and 2,000 coalesced token runs, including plain runs. CRLF counts once; CR, LF, Unicode line separator, and Unicode paragraph separator are boundaries, and a trailing break adds no empty line. The forward-moving scanner has fixed patterns and no recursion. Above a limit or if highlighting fails, the entire parsed code remains plain with a fixed notice, without truncation or a highlighted prefix. These limits bound highlighting work and output, not the whole Markdown parser or history rendering.
+
+Choices last only for mounted blocks and their exact text/language, reset after source/formatted toggles or reload, and survive theme changes. They never persist preferences, change room data, consume turns, invoke providers, or alter routing. Copy code uses the complete original parsed code independently of spans; the existing documented parser normalization of line endings/final newlines remains. Copy message, source, stored bodies, frozen context, literal search, and exports retain the original body. Streams stay literal until the attempt ends. Highlighting terminal partial answers retains failed status and disabled reply controls. Archives allow reading/copying without mutations. Formatter-module failure still exposes literal source and copying.
+
+Six token colors reuse existing theme variables and meet normal-text contrast against the code background in both themes. This targeted check does not complete the broader accessibility/contrast, assistive-technology, touch-device, or large-history audit. There are no runtime-range, dependency, schema, provider, permission, or license changes.
+
+Read `docs/architecture/0013-code-highlighting.md`, `docs/releases/0.12.0.md`, `src/client/code-highlighting.ts`, `src/client/CodeBlock.tsx`, `tests/highlighting.test.ts`, and `tests/ui/highlighting.spec.ts` alongside ADRs 0008/0012 before extending this behavior. Math, diagrams, attachments, broader accessibility, long-history performance, and the other unfinished README items remain open.
+
+## Previous iteration: safe footnote navigation
 
 v0.11.0 adds native reference and backlink buttons to parser-generated GFM footnotes. A click or Enter/Space activation moves focus and scrolls immediately to the exact note or reference within that formatted message. Navigation does not change the URL, fragment, history, workspace/thread selection, draft, room revision, provider calls, or turns. References identify their note and occurrence, notes accept programmatic focus, backlinks target the exact reference, and the generated section has a labeled heading with visible focus styling.
 
@@ -62,11 +76,11 @@ Only parser-generated graph edges recognized by the presentation plugin become c
 
 At most 100 referenced notes and 300 reference occurrences receive navigation controls in a message. Above either limit, all footnote navigation becomes inert labels with a readable application-authored notice; parsed notes and the exact source remain available. These limits bound interactive controls/metadata, not total Markdown nodes or large-history performance. Missing/malformed references remain text, unused definitions follow normal GFM omission, and cyclic references remain finite without automatic navigation.
 
-Streaming and source views stay literal. Completed and terminal partial answers may format without changing their authoritative status; failed partial replies remain disabled. Formatter failure still retains literal footnote source, copying, and conversation controls. Stored bodies, Copy message, frozen context, search, and Markdown exports keep exact strings. There are no dependency/runtime/schema/permission changes. Broad accessibility/contrast, real assistive-technology/touch-device audits, highlighting, math, diagrams, attachments, and history pagination remain open.
+Streaming and source views stay literal. Completed and terminal partial answers may format without changing their authoritative status; failed partial replies remain disabled. Formatter failure still retains literal footnote source, copying, and conversation controls. Stored bodies, Copy message, frozen context, search, and Markdown exports keep exact strings. There are no dependency/runtime/schema/permission changes. Broad accessibility/contrast, real assistive-technology/touch-device audits, math, diagrams, attachments, and history pagination remain open. Optional bounded highlighting is now implemented in v0.12.0; the broader audits remain unchecked.
 
 Read `docs/architecture/0012-message-footnotes.md`, `docs/releases/0.11.0.md`, `src/client/message-footnotes.ts`, and `tests/ui/footnotes.spec.ts` alongside ADR 0008 before extending this behavior or upgrading the parser.
 
-## Previous iteration: panel layout
+## Earlier iteration: panel layout
 
 v0.10.0 adds two focusable desktop dividers, pointer capture, Left/Right 10 px steps (Shift 50), Home/End bounds, pixel value announcements, and visible focus. Escape, cancelled/lost capture, and Settings/compact transitions roll back unfinished drags. Completed drags and keyboard adjustments save to browser storage; these controls have no conversation authority.
 
@@ -143,25 +157,29 @@ Each Playwright run now uses its own fresh temporary database. Do not reuse accu
 
 ## Verification and honest limits
 
-Local Node 24.19.0 passed locked installation, TypeScript checks, all 191 service/engine/provider/rendering tests, formatting, production client/server builds, `git diff --check`, and a zero-vulnerability production dependency audit. The dependency lock changes only the root application version.
+Local Node 24.19.0 passed locked installation, TypeScript checks, all 200 service/engine/provider/rendering tests, formatting, production client/server builds, `git diff --check`, and a zero-vulnerability production dependency audit. Playwright discovery lists 44 tests in six files; listing alone is not a browser pass. The lockfile changes only the root application version, and the package/shared release labels agree on 0.12.0.
 
-Seven new rendering cases cover scoped/unique IDs, repeated and colliding labels, Unicode/long labels, spoofed HTML/fragments, inert content policies, missing/unused/cyclic syntax, both navigation boundaries, and literal streaming/source. Existing source/context/search/export provenance coverage includes exact footnote syntax. Three new isolated production-browser flows bring the suite to 41 tests: 232 distinct tests including service/rendering. They cover Enter/Space focus and exact backlinks, unchanged URL/history/room records, stable source-toggle IDs, clipboard/source, both themes and narrow layout, archives/reload, blocked forged fragments/resource loads, over-limit fallback, completed versus failed partial HTTP streams, frozen context, and no automatic retry. Formatter-load failure now also retains footnote source. Prior routing, queue, roster, panel, archive/deletion, clipboard, and acknowledged-send selection regressions remain intact.
+Nine new highlighting tests cover explicit aliases, prototype-property names, plain defaults, whole lexical categories, exact source-range concatenation, Unicode and unfinished syntax, escaped hostile markup, all three resource boundaries, deterministic mixed inputs, and actual stylesheet token-color contrast in both themes. Existing provenance checks include highlighted routing-looking code and exact source/context/search/export retention. Three new isolated production-browser flows bring the suite to 44 tests: 244 distinct tests including service/rendering. They exercise Enter/Space toggles, per-block isolation, original code/message copying, footnote focus, source reset, narrow keyboard scrolling, theme retention, archives/reload, complete resource fallback, hostile code without execution/resource loads, split HTTP streams, explicit completion, failed partial status and frozen context, and no automatic retry. Formatter-load failure retains source without highlighting controls. Prior routing, queue, roster, panel, footnote, archive/deletion, clipboard, and acknowledged-send selection regressions remain intact.
 
-The known local Chromium executable is truncated (30,354,432 bytes with missing ELF sections expected beyond 209 MB) and previously crashed with SIGSEGV even for `--version`. This iteration did not retry that executable or download replacements. Local browser validation remains unavailable; do not reuse its path or claim a local UI pass. Browser verification was completed through CI, and no local Node 26 run is claimed.
+The known local Chromium executable is truncated (30,354,432 bytes with missing ELF sections expected beyond 209 MB) and previously crashed with SIGSEGV even for `--version`. This iteration did not retry it or download replacements. Local browser validation remains unavailable; do not reuse its path or claim a local UI pass. No local Node 26 run is claimed. Required browser/runtime verification uses the exact GitHub CI source tree.
 
-The later automatic v0.10.0 recovery-document CI `36956896872` failed one Ubuntu Node 26 browser check: thread deletion timed out after the default five seconds waiting for a simulated synthesis reply to become enabled. The other five jobs passed, including all 38 Ubuntu Node 24 browser tests. This was observed after the earlier application-source CI `36956469856` passed all six jobs; the prior recovery file had not claimed that its own newer tree passed. The v0.11.0 deletion test explicitly confirms the selected workspace after reload and waits up to ten seconds for the exact request's stored synthesis job to become completed before retaining its strict enabled-reply assertion. It does not accept incomplete jobs, change application behavior, or establish an unobserved application race as the cause.
+The initial v0.12.0 candidate `61bc68b737d94b0931bb58ae2e02314b2b5073a3` / CI `36963004936` passed all platform/service gates and all three new highlighting flows under both browser runtimes. Both Ubuntu runs found an existing clipboard test's broad status selector matching the new highlighting notice as well as copy feedback. Ubuntu Node 24 also found the layout-storage test's broad status selector matching a transient room-loading notice. The test-only correction scopes these checks to `.code-block .copy-control` and `.layout-notice[role="status"]`, retaining the exact intended feedback without changing application behavior or timeouts.
 
-The first v0.11.0 candidate `d5b02d93fab8f5c9a55f42823ee702ab2ece4ad0` / CI `36959444976` passed all service/platform gates and all 38 existing browser flows under both runtimes. Its three new browser flows stopped before exercising footnotes because an exact All messages selector omitted the button's displayed count. The test-only correction uses an anchored label match that includes the count; no application change or larger timeout was needed for those failures.
+Final exact-source CI `36963375971` passed all 200 service/rendering tests on Node 24.19.0/26.10.0 across Linux, Windows, and macOS, with clean installation, type/format checks, production builds, and zero-vulnerability production audits. Both Ubuntu jobs passed all 44 Chromium tests, including the three highlighting flows and the corrected clipboard/layout assertions: 244 distinct tests in this release. Older or failed runs do not verify this final source. The recovery-only follow-up triggers a separate automatic main CI; its outcome is not inferred from the source run.
 
-Final exact-source CI `36959769781` passed all 191 service/rendering tests on Node 24.19.0/26.10.0 across Linux, Windows, and macOS, with clean installation/checks/builds and zero-vulnerability production audits. Both Ubuntu jobs passed all 41 Chromium tests, including footnote focus/source/streaming/failure cases and the exact-completion deletion wait: 232 distinct tests in this release. Older or failed runs do not verify this final source. The recovery-only follow-up's automatic main run is a separate full-tree check; its status is not inferred from the application-source run.
+One large patch request initially failed with an exec-server WebSocket connection timeout before any files were changed. The first short recovery attempt (`pwd`) succeeded; an immediate status check confirmed no patch files or partial changes had been saved. The patch was reapplied successfully, and execution remained available afterward. One short execution recovery attempt was used, without an extended loop or an unresolved execution blocker. Retain the maximum of two short attempts if a future execution connection stalls.
 
-No paid provider account or installed Ollama model was tested with real credentials. Protocol fixtures and simulation do not establish live-account/model compatibility. Do not silently use credentials or bill a provider during normal tests.
+The previously published v0.11.0 exact-source CI `36959769781` passed all six jobs, 191 service/rendering tests on both runtimes across all three platforms, and 41 Chromium flows under both Ubuntu runtimes. Its recovery-only full-main run `36960095604` was independently confirmed successful this iteration. Those older runs do not verify v0.12.0.
 
-Signed-in ChatGPT/Grok/Gemini website transport is not implemented. This application communicates through APIs and simulation. Anthropic, unrestricted conferences, nested peer delegation, attachments, syntax highlighting, mathematical typesetting, diagrams, persistent capability catalogs, and other planned capabilities remain open.
+The deletion browser regression still waits up to ten seconds for the exact simulated request's authoritative stored synthesis completion before requiring an enabled reply. This wait addresses a default five-second timeout observed in an older documentation-tree CI run; it does not accept incomplete jobs or change completion rules. Footnote and highlighting browser selectors retain the anchored All messages label match including the displayed count.
+
+No paid provider account or installed Ollama model was tested with real credentials. Protocol fixtures and simulation do not establish live-account/model compatibility. Do not silently use credentials or bill a provider during normal tests. Browser service fixtures clear cloud key variables and use isolated temporary databases.
+
+Signed-in ChatGPT/Grok/Gemini website transport is not implemented. This application communicates through APIs and simulation. Anthropic, unrestricted conferences, nested peer delegation, attachments, mathematical typesetting, diagrams, persistent capability catalogs, and other planned capabilities remain open. Version 1 remains prohibited until every README checklist item is fully implemented and validated.
 
 ## What to do next
 
-One possible next bounded feature is optional safe code highlighting from the remaining README list. Specify a small fixed language set, resource limits, inert token rendering, and plain-code/source fallback before choosing a parser or dependency. Preserve ADRs 0008/0012 and exact strings. This is a suggestion, not an unfinished patch or permission for executable grammars or automatic external resource loading. Read the full current checklist and relevant decisions before choosing scope. Live-account smoke tests remain separate and require explicit authorization for provider requests.
+Read the remaining README checklist and choose one new bounded feature or demonstrated bug after verifying current main. One possible next feature is safe mathematical typesetting: define allowed syntax, resource bounds, escaped/inert rendering, accessibility, exact source/copy/context preservation, and readable failure behavior before choosing a dependency. That is a suggestion, not an unfinished patch, a selected v0.13.0 scope, or permission for executable plugins or automatic external loads. Bulk workspace management or a narrower demonstrated issue may be chosen instead. No second feature has been started. Live-account smoke tests remain separate and require explicit authorization for provider requests.
 
 1. Read current main and check whether newer commits supersede this checkpoint. Read any applicable `AGENTS.md` discovered in the new checkout; none existed in the recorded source tree.
 2. Read the README's complete TODO checklist, CONTRIBUTING, and the architecture decisions relevant to the intended change.
@@ -186,11 +204,11 @@ The complete implementation checklist belongs at the very end of README.md. Keep
 
 ## Checkout caveat
 
-This iteration reused `/workspace/scratch/066d1deae166/AIB_LLM_Built` after checking that its clean baseline tree exactly matched current main (`807c32a9c5295c7f147e8a80f89e65119001b310`). No applicable AGENTS.md was found. Source originally came through the authorized GitHub connection after the conventional clone endpoint was unavailable.
+This iteration reused `/workspace/scratch/066d1deae166/AIB_LLM_Built` after confirming its clean local baseline commit `3e637b5d9b6262875a5873bfc0cd140da00182e1` matched current main's exact tree `16fda6bbdf706a35d8ab690e919da0ec48f37a87`. No applicable AGENTS.md was found. Source originally came through the authorized GitHub connection after the conventional clone endpoint was unavailable.
 
-Local Git history is an independent snapshot, not a clone of remote history. Local application/test commit `9c9aa5942043f4285bfaaca806d02c06e0d05a2d` and remote application/test commit `789b669e1a574488f479472ff6c459b68a0a26db` share tree `85e4189f8ec10618221125f8937631dc42362e53`. Publishing uses actual remote parents and fast-forward refs; never force-push the snapshot or assume a normal pull can reconcile it. Preserve/compare exact trees before reconciling metadata.
+Local Git history is an independent snapshot, not a clone of remote history. Local application/test commit `c773d1444816408e6f3ae9f811532a013df1fe72` and remote application/test commit `37585977f9318bba2e1052f2d7a3ddcc1e6225bd` share tree `e3b9b1d4b65e55db2b523136839a4b587eb17d08`. Publishing uses actual remote parents and fast-forward refs; never force-push the snapshot or assume a normal pull can reconcile it. Preserve and compare exact trees before reconciling metadata.
 
-Application feature/test changes are committed and published to main with actual remote parents retained. This final recovery-only document follows that verified source. No uncommitted feature work or pending required check is carried over. The truncated local browser runtime remains unavailable; browser verification was completed through CI. No real data, credentials, generated assets, or test output is committed.
+Application feature/test changes are committed and published to main with actual remote parents retained. This final recovery-only document follows that verified source, and its remote tree is compared exactly with the local documentation tree during publication. No uncommitted feature work or pending required application check is carried over. No real data, credentials, generated assets, or test output is committed. The truncated local browser remains unavailable; browser verification was completed through CI.
 
 ## Useful paths and commands
 
@@ -209,11 +227,13 @@ Application feature/test changes are committed and published to main with actual
 - `tests/connections.test.ts`: coordinator/greeting probes, native provider envelopes, scope, cancellation, limits, and no-state-change coverage.
 - `tests/ui/connections.spec.ts`: simulation/saved-settings/narrow layout and greeting-success/coordinator-failure/explicit-success flows.
 - `tests/rendering.test.ts`: adversarial rendering and source-retention coverage.
+- `src/client/code-highlighting.ts`, `CodeBlock.tsx`, and `tests/highlighting.test.ts`: bounded lexical scanning, optional escaped token presentation, complete plain fallback, and targeted token contrast.
+- `tests/ui/highlighting.spec.ts`: isolated keyboard/copy/source/archive/reload, hostile code, resource bounds, streaming/failure/context coverage.
 - `tests/ui/footnotes.spec.ts`: isolated focus, URL/history, source, bounds, spoofing, streaming, failure, and provenance coverage.
 - `tests/ui/conversation.spec.ts`: Chromium workflows, including the send/refresh race regression.
 - `tests/ui/isolated-service.ts`: isolated production-service restart fixture.
 - `playwright.config.ts`: fresh per-run test data and optional `AIB_BROWSER_PATH`.
-- `docs/architecture/0001-language-and-runtime.md` through `0012-message-footnotes.md`: architecture decisions.
+- `docs/architecture/0001-language-and-runtime.md` through `0013-code-highlighting.md`: architecture decisions.
 - `.github/workflows/ci.yml`: six-job Node/platform matrix.
 
 Supported Node engine range is `>=24.15.0 <25 || >=26.10.0 <27`; `.nvmrc` selects 26.10.0. Use the lockfile. Do not silently upgrade dependencies or change the runtime range.
