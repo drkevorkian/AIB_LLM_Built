@@ -103,7 +103,10 @@ export function usePanelLayout(enabled: boolean) {
     const active = drag.current;
     if (!active) return;
     drag.current = null;
-    if (cancel) apply(active.original);
+    // Pointer release can precede delivery of the media-query change/React effect.
+    // Check the live viewport before persisting an unfinished desktop gesture.
+    if (cancel || !enabled || !window.matchMedia('(min-width: 1001px)').matches)
+      apply(active.original);
     else save(currentPreferences.current);
     setResizing(false);
     if (active.element.hasPointerCapture(active.pointerId))
@@ -118,7 +121,10 @@ export function usePanelLayout(enabled: boolean) {
     });
     observer.observe(element);
     const query = window.matchMedia('(min-width: 1001px)');
-    const changed = () => setDesktop(query.matches);
+    const changed = () => {
+      if (!query.matches) endDrag(true);
+      setDesktop(query.matches);
+    };
     query.addEventListener('change', changed);
     return () => {
       observer.disconnect();
