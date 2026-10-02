@@ -15,6 +15,7 @@ export function SettingsPage({
   room,
   theme,
   onTheme,
+  onLayoutReset,
   onDefaultsSaved,
   onWorkspaceSaved,
   onConfigure,
@@ -26,6 +27,7 @@ export function SettingsPage({
   room: Room | null;
   theme: 'dark' | 'light';
   onTheme: (theme: 'dark' | 'light') => void;
+  onLayoutReset: () => void;
   onDefaultsSaved: (settings: AppSettings) => void;
   onWorkspaceSaved: (room: Room) => void;
   onConfigure: (agent: Agent) => void;
@@ -64,6 +66,13 @@ export function SettingsPage({
             <option value="light">Light</option>
           </select>
         </label>
+        <div className="layout-preference">
+          <div>
+            <h3>Panel widths</h3>
+            <p>Desktop widths stay in this browser. Narrow screens use compact panels.</p>
+          </div>
+          <button onClick={onLayoutReset}>Reset panel widths</button>
+        </div>
         {defaults ? (
           <DefaultsForm settings={defaults} onSaved={onDefaultsSaved} />
         ) : (

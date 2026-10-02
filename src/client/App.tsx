@@ -19,6 +19,7 @@ import { searchWorkspaces, searchThreads, type WorkspaceView } from './search.js
 import { CopyButton } from './CopyButton.js';
 import { MessageText } from './MessageText.js';
 import { ParticipantQueue, useRoomActivity } from './ParticipantQueue.js';
+import { usePanelLayout } from './PanelLayout.js';
 import { applicationVersion } from '../shared/version.js';
 import {
   agentAtSnapshot,
@@ -101,6 +102,7 @@ export function App() {
   const [listLoaded, setListLoaded] = useState(false);
   const [defaults, setDefaults] = useState<AppSettings | null>(null);
   const [settingsPage, setSettingsPage] = useState(() => location.hash === '#settings');
+  const layout = usePanelLayout(!settingsPage);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<ArchiveTarget | null>(null);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
@@ -377,6 +379,35 @@ export function App() {
           </button>
         </div>
       </header>
+      <div className="panel-disclosures" aria-label="Workspace panels">
+        <button
+          className="quiet compact"
+          aria-expanded={!layout.collapsed.navigation}
+          aria-controls="workspace-navigation"
+          onClick={() => layout.toggle('navigation')}
+        >
+          {layout.collapsed.navigation ? 'Show navigation' : 'Hide navigation'}
+        </button>
+        <button
+          className="quiet compact"
+          hidden={settingsPage}
+          aria-expanded={!layout.collapsed.activity}
+          aria-controls="workspace-activity"
+          onClick={() => layout.toggle('activity')}
+        >
+          {layout.collapsed.activity ? 'Show participants' : 'Hide participants'}
+        </button>
+      </div>
+      {layout.notice && (
+        <p className="layout-notice" role="status">
+          {layout.notice}
+        </p>
+      )}
+      <p className="sr-only" id={layout.helpId}>
+        Drag to resize. Left and Right arrows move the divider by 10 pixels; hold Shift for 50. Home
+        and End choose the smallest and largest panel width. Escape cancels a drag. Reset panel
+        widths in Settings.
+      </p>
       {error && (
         <div className="error-banner" role="alert">
           {error}
@@ -385,8 +416,16 @@ export function App() {
           </button>
         </div>
       )}
-      <div className={`workspace ${settingsPage ? 'settings-open' : ''}`}>
-        <aside className="sidebar">
+      <div
+        ref={layout.root}
+        style={layout.style}
+        className={`workspace ${settingsPage ? 'settings-open' : ''} ${!layout.desktop && layout.collapsed.navigation ? 'navigation-collapsed' : ''} ${layout.resizing ? 'resizing' : ''}`}
+      >
+        <aside
+          className="sidebar"
+          id="workspace-navigation"
+          hidden={!layout.desktop && layout.collapsed.navigation}
+        >
           <div className="section-heading">
             <h2>WORKSPACE</h2>
             <button
@@ -565,6 +604,7 @@ export function App() {
             <span className="muted">Work continues while the service runs.</span>
           </div>
         </aside>
+        <div {...layout.separator('navigation')} />
         <main className="conversation" hidden={settingsPage}>
           <div className="conversation-header">
             <div>
@@ -815,7 +855,12 @@ export function App() {
             />
           )}
         </main>
-        <aside className="activity-panel" hidden={settingsPage}>
+        <div {...layout.separator('activity')} />
+        <aside
+          className="activity-panel"
+          id="workspace-activity"
+          hidden={settingsPage || (!layout.desktop && layout.collapsed.activity)}
+        >
           <div className="section-heading">
             <h2>PARTICIPANTS</h2>
             <span>{room?.agents.filter(isAgentActive).length ?? 0} active</span>
@@ -900,6 +945,7 @@ export function App() {
             room={room}
             theme={theme}
             onTheme={setTheme}
+            onLayoutReset={layout.reset}
             onDefaultsSaved={(next) => {
               setDefaults(next);
               setTick((v) => v + 1);

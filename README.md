@@ -2,7 +2,7 @@
 
 A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** v0.9.0 adds participant queue inspection with exact source threads, dispatch holds, shared capacity, and response prerequisites. Explicit coordinator capability tests remain available before Agent discussion. Safe Markdown/code formatting, original-source views, and message/code copying remain available. Workspace search, thread-content search and naming, and persistent archives are available. Workspaces support 1–8 independent participants, roster management in Settings, and persistent participant configuration history. Node.js 26.10 and Node 24 are supported. A human-selected coordinator can ask active peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. The application also includes saved conversation defaults, workspace editing, and confirmed workspace/thread deletion. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and browser flows are tested with fixtures; credentialed provider accounts and installed local models have not been verified in this workspace. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
+**Status:** v0.10.0 adds pointer and keyboard panel resizing, saved browser widths, and collapsible panels on narrow screens. Participant queue inspection retains exact source threads, dispatch holds, shared capacity, and response prerequisites. Explicit coordinator capability tests remain available before Agent discussion. Safe Markdown/code formatting, original-source views, and message/code copying remain available. Workspace search, thread-content search and naming, and persistent archives are available. Workspaces support 1–8 independent participants, roster management in Settings, and persistent participant configuration history. Node.js 26.10 and Node 24 are supported. A human-selected coordinator can ask active peers, collect all/any/quorum responses, and finish within an enforced round and turn allowance. The application also includes saved conversation defaults, workspace editing, and confirmed workspace/thread deletion. OpenAI, Grok/xAI, Gemini, Ollama, and OpenAI-compatible servers have implemented adapters. Add your provider keys or start a local model, then configure each participant in the app. Provider protocols and browser flows are tested with fixtures; credentialed provider accounts and installed local models have not been verified in this workspace. This release connects through APIs; signed-in ChatGPT/Grok/Gemini website sessions remain a separate, unimplemented transport. AI Conversation Room is the working name for `drkevorkian/AIB_LLM_Built`, inspired by lessons from AI Bridge.
 
 ## Overview
 
@@ -25,7 +25,7 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
 
-## Available in v0.9.0
+## Available in v0.10.0
 
 - Read Markdown headings, emphasis, lists, quotes, tables, disabled task checkboxes, and scrollable code blocks with language labels.
 - Switch each message between formatted and original-source views, copy its stored text, or copy an individual code block, including in archived workspaces.
@@ -47,13 +47,22 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Pause/resume/stop, explicit bounded retries, and restart recovery.
 - A dedicated Settings page for theme, saved conversation defaults, workspace name/objective/turn limit, and participant connections.
 - Confirmed workspace/thread deletion, cancellation of affected work, removal of copied source context, and an empty state that survives service restart.
+- Resizable desktop navigation and participant panels with keyboard controls, browser-persisted widths, Settings reset, and narrow-screen disclosures.
 - A responsive React interface with dark/light themes and a loopback-only service with validated local sessions.
 
 New rooms start in simulation so launch does not invoke or bill a provider. Configure participants explicitly to use real models. Missing credentials or failed live requests produce visible failures; they never fall back to simulation.
 
-See [v0.9.0 release notes](docs/releases/0.9.0.md), [queue inspection contract](docs/architecture/0010-participant-queue-inspection.md), [v0.8.0 release notes](docs/releases/0.8.0.md), [coordinator testing contract](docs/architecture/0009-coordinator-capability-tests.md), [v0.7.0 release notes](docs/releases/0.7.0.md), [message presentation contract](docs/architecture/0008-message-presentation.md), [v0.6.0 release notes](docs/releases/0.6.0.md), [workspace organization contract](docs/architecture/0007-workspace-organization.md), [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
+See [v0.10.0 release notes](docs/releases/0.10.0.md), [panel layout contract](docs/architecture/0011-panel-layout.md), [v0.9.0 release notes](docs/releases/0.9.0.md), [queue inspection contract](docs/architecture/0010-participant-queue-inspection.md), [v0.8.0 release notes](docs/releases/0.8.0.md), [coordinator testing contract](docs/architecture/0009-coordinator-capability-tests.md), [v0.7.0 release notes](docs/releases/0.7.0.md), [message presentation contract](docs/architecture/0008-message-presentation.md), [v0.6.0 release notes](docs/releases/0.6.0.md), [workspace organization contract](docs/architecture/0007-workspace-organization.md), [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
 
 ![Agent discussion through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
+
+## Resizing and collapsing panels
+
+On screens wider than 1000 px, drag either divider to resize the navigation or participant panel. Tab to a divider and use **Left/Right** arrows to move it by 10 px, or **Shift + Left/Right** for 50 px. **Home/End** select the panel's minimum/maximum width. **Escape** cancels an active drag; pointer cancellation or a transition to Settings/narrow screens also restores the previous width. Completed drags and keyboard adjustments save in this browser for subsequent views/reloads. These controls apply to presentation and never change conversation data or invoke a provider.
+
+Navigation widths range from 180–420 px and participant widths from 230–480 px. Both shrink within these bounds when needed to retain at least 400 px for the desktop conversation. A smaller viewport does not overwrite the saved wider-screen preference; an explicit resize saves the widths currently chosen in that view. Settings has **Reset panel widths** to restore responsive defaults and reopen collapsed panels. Malformed saved values use defaults. If browser storage is unavailable, resizing still applies to the open view and a visible notice explains that it cannot save.
+
+At 1000 px or below, desktop dividers and saved widths give way to the compact layout. **Hide/Show navigation** and **Hide/Show participants** collapse panels independently. Conversation controls and pending-response status stay in the conversation; both workspace Stop and Stop discussion remain available. Panels stay mounted, retaining drafts, selections, and disclosures. Narrow collapse choices last for the open view; desktop panels remain visible, and reload reopens compact panels. Preferences are local to this browser origin, without service-wide or live cross-tab synchronization.
 
 ## Reading and copying messages
 
@@ -197,7 +206,7 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-The v0.9.0 suite includes 184 engine/service/provider-protocol/rendering tests and 33 Chromium UI tests. Required verification covers both Node 26.10.0 and 24.19.0; exact completed checks and commit/run links are recorded in `LLM_Recovery_Prompt.md`. Coverage includes Markdown safety, exact source/code copying, denied or missing clipboard APIs, split streams, failed partial code, formatter-load failure, delayed post-send history refresh and retained drafts/selection, source/context/export preservation, archives and explicit restoration, read-only archive commands, scoped renaming during active work, safe search previews, archive-only service restart, variable rosters, activation, configuration history, frozen retry bindings, independent duplicate names, cross-view drafts, and persistence/restart. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use a fresh temporary data directory for each run, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
+The v0.10.0 suite includes 184 engine/service/provider-protocol/rendering tests and 38 Chromium UI tests. Required verification covers both Node 26.10.0 and 24.19.0; exact completed checks and commit/run links are recorded in `LLM_Recovery_Prompt.md`. Coverage includes pointer capture/cancellation, keyboard sizing/bounds, browser width persistence/reset, invalid/unavailable storage, responsive collapse/drafts, visible Stop controls, unchanged room records, Markdown safety, exact source/code copying, denied or missing clipboard APIs, split streams, failed partial code, formatter-load failure, delayed post-send history refresh and retained drafts/selection, source/context/export preservation, archives and explicit restoration, read-only archive commands, scoped renaming during active work, safe search previews, archive-only service restart, variable rosters, activation, configuration history, frozen retry bindings, independent duplicate names, cross-view drafts, and persistence/restart. Protocol fixtures exercise the production adapters over streamed HTTP, including relay and a six-turn coordinator → parallel peers → targeted review → final result flow. These checks do not establish availability of your cloud account or installed local model. Browser tests use a fresh temporary data directory for each run, separate from normal application data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development boundaries.
 
 To exercise failure handling in simulation, include `[simulate:fail]`, `[simulate:refuse]`, or `[simulate:slow]` in a question. Use `[simulate:follow-up]` in an agent discussion to demonstrate a second round targeting the first peer’s exact answer. These markers belong to simulation and have no special behavior in live providers.
 
@@ -430,7 +439,7 @@ Retention, export, deletion, backup, and provider data transmission must be unde
 
 ## Interface
 
-The proposed wide layout has three resizable columns: rooms/threads, conversation, and agent activity/details. Narrow layouts collapse panels without hiding stop controls or pending-response status.
+The wide layout has resizable rooms/threads and agent activity/details panels around the conversation. Narrow layouts reflow and offer panel disclosures without hiding conversation stop controls or pending-response status.
 
 Messages display author, recipients, visibility, reply target, status, and linked artifacts. The response-set view shows each expected participant, received answers, deadline, and completion policy. A queue view explains why work is waiting.
 
@@ -448,7 +457,7 @@ Implement domain contracts and a deterministic fake provider before live integra
 
 Contributions should explain the behavior changed, its reason, relevant failure cases, and validation. New routing or recovery behavior requires tests of its observable guarantees. No feature is complete solely because its happy path works once.
 
-TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. v0.5.0 adds variable participant rosters, activation, and configuration history. v0.6.0 adds workspace/thread search, thread renaming, and workspace archive/restore. v0.7.0 adds safe Markdown/code presentation, original-source views, and copy controls. v0.8.0 adds coordinator capability checks; v0.9.0 adds read-only participant queue inspection. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
+TypeScript, React, Node 24, SQLite, and local browser operation were selected for v0.1.0. The v0.2.0 iteration added live API adapters and bounded relay; v0.3.0 adds bounded agent-chosen peer discussions. v0.4.0 adds settings and workspace/thread management; v0.4.1 adds verified Node 26.10 support. v0.5.0 adds variable participant rosters, activation, and configuration history. v0.6.0 adds workspace/thread search, thread renaming, and workspace archive/restore. v0.7.0 adds safe Markdown/code presentation, original-source views, and copy controls. v0.8.0 adds coordinator capability checks; v0.9.0 adds read-only participant queue inspection. v0.10.0 adds pointer/keyboard panel sizing, browser width preferences, and narrow panel disclosures. Source-run installation is available; desktop packaging and the project license remain open decisions. There is no declared project license grant.
 
 ## Delivery milestones
 
@@ -467,7 +476,7 @@ Keep releases on **0.x** until **every item in the complete README checklist is 
 
 ## Complete implementation TODO checklist
 
-This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.9.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
+This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.10.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.
 
 ### 1. Product scope and decisions
 
@@ -632,7 +641,7 @@ This is the complete implementation checklist for the scope described above. Che
 
 - [x] Implement room creation, selection, search, archive, and deletion.
 - [x] Implement the three-column room/thread, conversation, and agent-details layout.
-- [ ] Add panel resizing and responsive collapse behavior.
+- [x] Add panel resizing and responsive collapse behavior (pointer/keyboard resizing, browser width preferences, and narrow panel disclosures in v0.10.0).
 - [x] Add agent configuration, role editing, activation, and model selection.
 - [x] Build a composer with explicit recipients, visibility, and response policy.
 - [x] Implement message reply, thread creation, and linked-source navigation.
@@ -953,3 +962,16 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Verify service scope, order, occupancy, prerequisites, original retry bindings, persistence/restart, browser navigation, stale-response rejection, and read recovery.
 - [ ] Add queue reordering, priorities, fair global allocation, or estimated start times only after specifying scheduling authority and capacity policies.
 - [ ] Add broader dependency graphs/cycle explanations and large-queue pagination without changing existing grants or dispatch order.
+
+### 30. v0.10.0 panel layout
+
+- [x] Resize desktop navigation and participant panels with pointer capture and focusable named separators.
+- [x] Support Left/Right, Shift, Home/End, visible focus, size announcements, and Escape drag cancellation.
+- [x] Bound side-panel widths and preserve at least 400 px for the desktop conversation.
+- [x] Persist explicit widths in browser storage with strict validation and a usable unsaved state when storage is unavailable.
+- [x] Fit smaller desktop viewports without overwriting wider-screen preferences; ignore saved widths in compact layouts.
+- [x] Reset browser widths and reopen compact panels from Settings without changing service defaults or room data.
+- [x] Collapse/reopen navigation and participant panels on narrow screens while retaining mounted drafts/selections and conversation response status.
+- [x] Preserve workspace Stop and Stop discussion, both themes, source/code bounds, and existing send-selection guards.
+- [x] Verify keyboard/pointer bounds, completion/cancellation, reload/reset, malformed/blocked storage, responsive transitions, active-work Stop, retained drafts, and unchanged room records.
+- [ ] Complete the broader application accessibility/contrast audit and large-history usability work already listed above.
