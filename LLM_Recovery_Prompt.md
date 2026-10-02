@@ -1,6 +1,6 @@
 # LLM Recovery Prompt
 
-Updated: 2026-10-01 (America/Denver). Application checkpoint: v0.8.0.
+Updated: 2026-10-01 (America/Denver). Application checkpoint: v0.9.0.
 
 This file is a durable handoff for a new chat or another LLM. Paste the whole file when repository access is unavailable, or use the launch prompt below when the receiving LLM can read GitHub. The current repository is authoritative if it has advanced beyond this checkpoint.
 
@@ -21,17 +21,17 @@ The chosen stack is TypeScript with a React/Vite client, a Node.js server, and S
 
 ## Saved checkpoint
 
-- Branch: `main`. The verified application commit was validated on `codex/v0.8.0-coordinator-checks-20261001` before publication.
-- Application version: `0.8.0`.
-- Most recent application-code commit: `32311f0326c3b4631ab83b383b7ed2d1ef595dc5` — `Wait for refresh completion with an empty composer`.
-- Application-code Git tree: `3fa0d512f9fe663d0645abb18a319ecdf7b49b79`.
-- Application-code CI: https://github.com/drkevorkian/AIB_LLM_Built/actions/runs/36944984130
-- CI status: completed successfully for the exact application-code commit, with all six platform/runtime jobs green and all 30 Chromium tests passing on Ubuntu under both runtimes.
-- Baseline main was `31fe4a56e97edc13baf434c823e97a68dec7bdbd` (the v0.7.0 recovery document), with tree `d8a84f7ffae6bb4190439187c55be14178cb1a87`.
-- The v0.8.0 iteration is complete and published. No unfinished feature patch, pending required application check, or selected v0.9.0 feature is carried over.
-- This recovery document follows the application-code commit. A documentation-only change does not make the application-code CI verification of a newer full Git tree. CI for this later recovery-only commit is separate and is not asserted by the application-code run linked above.
+- Main baseline: `e8aea1f7c1b6f9df15b889bd02d6a029f7f50903`, v0.8.0, tree `341bac7dead8bbda117c212cc6ef8f159e8ec34a`.
+- Branch: `main`. Application version: `0.9.0`.
+- Most recent application/test commit: `d34544254c3831df87c1610aa088a12aef33aeba` — `Close the restart fixture before removing its database`.
+- Application/test Git tree: `31ba08a04dc54d5f0e41d20545611c2765a982e5`.
+- Validation branch: `codex/v0.9.0-queue-inspection-20261001`.
+- Exact application/test CI: https://github.com/drkevorkian/AIB_LLM_Built/actions/runs/36950332091
+- CI completed successfully for commit `d34544254c3831df87c1610aa088a12aef33aeba`: all six platform/runtime jobs green; all 33 Chromium tests passed on Ubuntu under both runtimes.
+- The bounded v0.9.0 iteration is complete and published. No unfinished feature patch, pending required application check, blocker, or selected v0.10.0 feature is carried over.
+- This recovery document follows the verified application/test commit. CI for the later documentation-only commit is separate; the application CI linked above does not claim to verify that newer full tree.
 
-Current goal completed: the bounded v0.8.0 iteration, its required checks, publication, and this recovery update. No second feature has been started. The next receiving LLM should read current main and choose the next bounded README item.
+Current goal completed: the bounded v0.9.0 implementation, validation, publication, and recovery update. No second feature has been started. Read current main and select the next bounded unfinished README item.
 
 ## Working behavior already implemented
 
@@ -40,7 +40,7 @@ Current goal completed: the bounded v0.8.0 iteration, its required checks, publi
 - Fixed relays with 1–12 hops, including repeated identities and orders such as A → C → B → A.
 - Coordinator discussions with strict validated actions, frozen peer grants, 1–10 peer rounds, and a reserved 2–50 turn allowance. Invalid completed decisions permit one bounded correction; network failures do not receive that correction retry.
 - Persistent history, threads, response sets, streamed answers, frozen context inspection, reported token usage, provider request IDs, and Markdown export.
-- Per-participant queues, a global generation limit of four, pause/resume/stop, explicit bounded retries, turn accounting, and restart recovery.
+- Per-participant queues with running/numbered queue inspection, source-thread links, dispatch holds, shared-slot occupancy, and separate synthesis/coordinator response prerequisites. A global generation limit of four, pause/resume/stop, explicit bounded retries, turn accounting, and restart recovery remain unchanged.
 - Settings for themes, conversation defaults, workspace name/objective/turn limits, and participant connections.
 - Explicit greeting and coordinator capability probes, sharing scheduling limits/cancellation and leaving conversation state/turn usage unchanged.
 - Confirmed workspace/thread deletion with scoped cancellation, removal of copied deleted source context, late-event rejection, and persistence of the empty state after the final workspace is deleted.
@@ -49,7 +49,23 @@ Current goal completed: the bounded v0.8.0 iteration, its required checks, publi
 
 Archive, deletion, retry, roster, search, and context guarantees are described in the architecture decisions. Inspect those documents before changing the relevant behavior.
 
-## Current iteration: coordinator capability tests
+## Current iteration: participant queue inspection
+
+v0.9.0 adds **Inspect queue** to each active participant card. It shows running generations and actual queued jobs in their stored per-participant order, exact source threads, frozen provider/model bindings, queue/start times, applicable collecting-response deadlines, and current dispatch holds. Sources are plain React text; selecting a source preserves the draft and uses the existing explicit thread-choice guard.
+
+The authenticated `GET /api/rooms/:roomId/activity` is a transient read-only projection of the room and scheduler occupancy. It never mutates stored rooms, expires requests, invokes providers, reserves/consumes turns, dispatches, reorders, retries, or cancels work. It uses existing session/Host/Origin/scope/method checks. Anonymous global slot counts include other workspaces and probes without disclosing their identities or work. Message bodies, objective/role/context copies, endpoint URLs, raw errors, and credentials are excluded; thread titles remain authorized metadata and may derive from question text.
+
+Synthesis and coordinator continuations still waiting for eligible peer responses appear under **Response prerequisites**, outside numbered queues. They use the saved all/any/quorum threshold, latest recipient attempt statuses, and frozen attribution. Failed, refused, interrupted, cancelled, and missing attempts do not count as completed. Explicit retries update the latest status; actual continuation creation or cancellation/deletion removes the prerequisite. Existing workflow/attempt cards retain other blocked relay/decision explanations. Do not invent queued future work.
+
+Holds reflect pause/archive/stop/shutdown, inactivity, participant requests/checks, earlier queue entries, shared occupied slots, turn limits, ended discussions, and elapsed collecting deadlines awaiting scheduler cleanup. Closed response sets' old deadlines do not hold queued synthesis or late answers. Inspection does not enforce these holds or grant resumption; the original scheduler remains authoritative. Probe start/end and released generation slots broadcast transient notifications without recording history or changing revisions. A completed/aborted iterator still closing is shown as finishing request cleanup until its slot releases.
+
+Client snapshots must match the selected workspace ID and loaded revision. Old aborted reads cannot replace another workspace's view. Disconnection marks last-observed data; failed reads remove old actionable details and offer explicit Refresh. Observation-time readiness is not a promise of start time, global fairness, or remote processing state. Keep native keyboard-focusable disclosure controls and bounded narrow layouts in both themes.
+
+Header, local session, and startup labels now share `src/shared/version.ts`; keep it consistent with the package version. Dependencies, runtime ranges, persisted schema, grants, snapshots, accounting, and licenses are unchanged.
+
+Read `docs/architecture/0010-participant-queue-inspection.md`, `docs/releases/0.9.0.md`, `src/server/activity.ts`, `src/client/ParticipantQueue.tsx`, and the new activity tests before extending this feature. Queue reordering/priorities, fair global allocation, timing estimates, broader dependency graphs, and pagination remain planned.
+
+## Previous iteration: coordinator capability tests
 
 v0.8.0 adds **Test coordinator** beside **Test connection** in participant settings. A successful greeting does not prove the structured-output capability needed by Agent discussion. The new check sends one native structured decision request through the saved binding, with participant roles but no thread history or workspace objective. It has no peer grant and never schedules conversation work.
 
@@ -63,7 +79,7 @@ Empty-peer native output schemas now omit the empty enum and retain string items
 
 Read `docs/architecture/0009-coordinator-capability-tests.md`, `docs/releases/0.8.0.md`, and `tests/connections.test.ts` / `tests/ui/connections.spec.ts` before changing these guarantees. The original section 22 coordinator-test TODO is complete; capability catalogs and credentialed model smoke tests remain open.
 
-## Previous iteration: message presentation
+## Earlier iteration: message presentation
 
 v0.7.0 added CommonMark/GFM headings, emphasis, lists, quotes, tables, disabled task checkboxes, inline code, and fenced/indented code blocks. Each message supports formatted/source views and Copy message; code blocks support Copy code. Archived history supports these reading controls.
 
@@ -96,9 +112,11 @@ Each Playwright run now uses its own fresh temporary database. Do not reuse accu
 
 ## Verification and honest limits
 
-The v0.8.0 candidate passed all 166 engine/service/provider-protocol/rendering tests locally on Node 24.19.0, along with TypeScript checks, formatting, production client/server builds, and `git diff --check`. The production audit found zero vulnerabilities. The 26 new service/HTTP/protocol tests include completion gating, invalid actions, all five native envelopes, timeouts, serialization, locks, scope, cancellation, no state changes, and secret-safe diagnostics.
+Local Node 24.19.0 passed locked installation, TypeScript checks, all 184 service/engine/provider/rendering tests, formatting, production client/server builds, `git diff --check`, and a zero-vulnerability production dependency audit. The new iteration adds 18 service/HTTP tests covering order, frozen retry bindings and attribution, all/any/quorum and coordinator barriers, failed/refused/incomplete attempts, global/probe/cleanup occupancy, expiry holds, read-only state, scope, cancellation/deletion, and disk recovery.
 
-There are 30 distinct Chromium UI tests (28 existing plus two new), including archived coordinator-button disablement. The local Chromium download failed with a truncated archive. No local browser run or local Node 26 run is claimed for this iteration. Exact-source CI passed all 166 service/rendering tests on Node 24.19.0 and Node 26.10.0 across Ubuntu, Windows, and macOS, along with installation, checks, builds, and clean production audits. Ubuntu passed all 30 Chromium tests on both runtimes: 196 distinct tests in the release. During validation, the initial candidate exposed the All messages navigation race, which was fixed. The new browser regression then needed an exact navigation selector and an idle-label check for the correctly disabled empty composer. Earlier failed runs do not verify this final source.
+All 33 Chromium UI tests passed locally using an existing compatible Chromium 153.0.8010.0 executable through `AIB_BROWSER_PATH`. The three new flows cover safe source names/navigation/drafts, reload, narrow layouts/both themes, active/queued work, failure-to-explicit-retry prerequisites, failed reads, and old-workspace snapshot rejection. The expanded mobile queue was visually inspected. New queue browser tests use their own isolated production services and fresh databases so held work, global slots, and reload selection cannot interfere with other test files. All browser services clear cloud credentials.
+
+The first full local UI run exposed shared-service test interference at two reload assertions; isolation fixed it and all 33 tests then passed. The first candidate CI run (`36950185519`) passed both macOS jobs but found a Windows-only teardown error in the new disk-restart test: its temporary directory was removed before SQLite closed. Candidate `d34544254c3831df87c1610aa088a12aef33aeba` corrects teardown ordering; its focused 18 tests and formatting passed locally afterward. Exact-source CI run `36950332091` then passed all 184 service/rendering tests on Node 24.19.0 and 26.10.0 across Linux, Windows, and macOS, with clean installation, checks, builds, and production audits. Both Ubuntu jobs passed all 33 Chromium tests: 217 distinct tests in the release. No local Node 26 run is claimed; Node 26 validation is observed through CI. Earlier failed runs do not verify the current source.
 
 No paid provider account or installed Ollama model was tested with real credentials. Protocol fixtures and simulation do not establish live-account/model compatibility. Do not silently use credentials or bill a provider during normal tests.
 
@@ -106,11 +124,11 @@ Signed-in ChatGPT/Grok/Gemini website transport is not implemented. This applica
 
 ## What to do next
 
-One suggested next bounded feature is a per-participant queue inspector showing queued order, originating thread, and concrete blocking reasons without changing scheduling authority. This is a suggestion, not an unfinished patch. Read the full current README checklist and relevant decisions before choosing the next scope. Live-account smoke tests remain separate and require explicit authorization for provider requests.
+One suggested next bounded feature is keyboard-accessible desktop panel resizing, retaining browser preferences while preserving narrow layouts and visible Stop controls. This is a suggestion, not an unfinished patch. Read the full current README checklist and relevant decisions before choosing the next scope. Live-account smoke tests remain separate and require explicit authorization for provider requests.
 
 1. Read current main and check whether newer commits supersede this checkpoint. Read any applicable `AGENTS.md` discovered in the new checkout; none existed in the recorded source tree.
 2. Read the README's complete TODO checklist, CONTRIBUTING, and the architecture decisions relevant to the intended change.
-3. When asked to continue, select one useful, bounded unfinished item or demonstrated bug and state the chosen scope briefly. The v0.8.0 feature is complete; do not invent a partially completed next feature.
+3. When asked to continue, select one useful, bounded unfinished item or demonstrated bug and state the chosen scope briefly. The v0.9.0 iteration is complete; do not invent a partially completed next feature.
 4. Implement the iteration, run appropriate validation, update README/release notes as needed, refresh this recovery file, and publish through the authorized connection.
 5. Finish with the concrete change, commit/link, completed checks, and material remaining limitations. Distinguish saved work from pending or unobserved work.
 
@@ -120,7 +138,7 @@ The complete implementation checklist belongs at the very end of README.md. Keep
 
 - The established workflow permits routine implementation, validation, documentation, and publishing completed changes directly to main. Do not ask for confirmation repeatedly for that same scope. Respect your actual system/developer instructions and the receiving user's current request.
 - Preserve user changes, real application data, original messages, attribution, frozen retry bindings, permissions, and turn accounting. Do not force-push or discard an unrelated worktree.
-- Prefer a small complete iteration to an unbounded rewrite. Do not redo the completed v0.7.0 or v0.8.0 iterations or repeat passing suites without a new change, failure, or unresolved concern.
+- Prefer a small complete iteration to an unbounded rewrite. Do not redo the completed v0.7.0, v0.8.0, or v0.9.0 iterations or repeat passing suites without a new change, failure, or unresolved concern.
 - UI corners should be square: prefer 0–4px radii, with none above 8px.
 - No project license has been selected. The package is private; do not add a license grant or publish it to npm.
 - Work solo unless the user or applicable project instructions explicitly request delegation.
@@ -130,16 +148,20 @@ The complete implementation checklist belongs at the very end of README.md. Keep
 
 ## Checkout caveat
 
-This iteration's scratch checkout is `/workspace/scratch/066d1deae166/AIB_LLM_Built`. Source was obtained through the authorized GitHub connection after the conventional clone endpoint was unavailable. All 69 baseline files were verified against their remote Git blob hashes, and the baseline tree matched current main exactly.
+This iteration reused `/workspace/scratch/066d1deae166/AIB_LLM_Built` after checking that its clean baseline tree exactly matched current main (`341bac7dead8bbda117c212cc6ef8f159e8ec34a`). Original source had been obtained through the authorized GitHub connection after the conventional clone endpoint was unavailable; all baseline files/tree were verified.
 
-The local Git history is an independent snapshot, not a clone of remote commit history. Local application commit `120028b` has the same tree `3fa0d512f9fe663d0645abb18a319ecdf7b49b79` as remote application commit `32311f0326c3b4631ab83b383b7ed2d1ef595dc5`. Publishing used the actual remote parent, preserving main's history. Do not force-push the local snapshot or assume a normal pull can reconcile it. Prefer a fresh checkout of current main; if reusing this checkout, preserve changes and compare exact trees before any metadata reconciliation.
+Local Git history remains an independent snapshot, not a clone of remote commit history. Local application/test commit `8025e5666641bc343956261ff69fe8faf17f59cd` and remote application/test commit `d34544254c3831df87c1610aa088a12aef33aeba` share tree `31ba08a04dc54d5f0e41d20545611c2765a982e5`. Publishing uses actual remote parents and fast-forward refs; never force-push the local snapshot or assume a normal pull can reconcile it. Prefer a fresh checkout of current main, or preserve and compare exact trees before reconciling metadata.
 
-The final publication adds only this recovery document after the clean application-code checkpoint. No uncommitted feature work is carried over. No real data, credentials, generated assets, or test output is committed.
+Application feature/test changes are committed and published to main with their actual remote parents retained. This final recovery-only document follows that verified source. No uncommitted feature work or blocked check is carried over. No real data, credentials, generated assets, or test output is committed.
 
 ## Useful paths and commands
 
 - `src/shared`: schemas and shared types.
 - `src/server/engine.ts`: scheduling, routing, workflows, and domain rules.
+- `src/server/activity.ts`: read-only activity projection.
+- `src/client/ParticipantQueue.tsx`: activity freshness, queue disclosure, prerequisites, and source navigation.
+- `src/shared/version.ts`: shared header/session/startup release label.
+- `tests/activity.test.ts` and `tests/ui/activity.spec.ts`: queue, prerequisite, occupancy, recovery, HTTP, and isolated browser coverage.
 - `src/server/store.ts`: SQLite persistence and transactions.
 - `src/server/http.ts`: HTTP contracts and request validation.
 - `src/server/providers.ts` and `src/server/live-providers.ts`: provider interfaces, simulation, live adapters, and model prompt boundaries.
@@ -151,7 +173,7 @@ The final publication adds only this recovery document after the clean applicati
 - `tests/ui/conversation.spec.ts`: Chromium workflows, including the send/refresh race regression.
 - `tests/ui/isolated-service.ts`: isolated production-service restart fixture.
 - `playwright.config.ts`: fresh per-run test data and optional `AIB_BROWSER_PATH`.
-- `docs/architecture/0001-language-and-runtime.md` through `0009-coordinator-capability-tests.md`: architecture decisions.
+- `docs/architecture/0001-language-and-runtime.md` through `0010-participant-queue-inspection.md`: architecture decisions.
 - `.github/workflows/ci.yml`: six-job Node/platform matrix.
 
 Supported Node engine range is `>=24.15.0 <25 || >=26.10.0 <27`; `.nvmrc` selects 26.10.0. Use the lockfile. Do not silently upgrade dependencies or change the runtime range.
