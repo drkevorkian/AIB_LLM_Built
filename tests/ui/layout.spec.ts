@@ -314,12 +314,16 @@ test('invalid or inaccessible width storage falls back safely and reports unsave
   await expect(navigation(page)).toHaveAttribute('aria-valuenow', '238');
   await navigation(page).press('ArrowRight');
   await expect(navigation(page)).toHaveAttribute('aria-valuenow', '248');
-  await expect(page.getByRole('status')).toContainText('browser storage is unavailable');
+  await expect(page.locator('.layout-notice[role="status"]')).toContainText(
+    'browser storage is unavailable',
+  );
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Reset panel widths' }).click();
   await page.getByRole('button', { name: 'Back to conversation' }).click();
   await expect(navigation(page)).toHaveAttribute('aria-valuenow', '238');
-  await expect(page.getByRole('status')).toContainText('browser storage is unavailable');
+  await expect(page.locator('.layout-notice[role="status"]')).toContainText(
+    'browser storage is unavailable',
+  );
   await expectContained(page);
   expect(errors).toEqual([]);
 });

@@ -282,7 +282,7 @@ test('clipboard rejection and missing clipboard API expose selectable source and
     }),
   );
   await message.getByRole('button', { name: 'Copy code', exact: true }).click();
-  await expect(message.locator('.code-block').getByRole('status')).toHaveText(
+  await expect(message.locator('.code-block .copy-control').getByRole('status')).toHaveText(
     'Clipboard unavailable. Select the text to copy.',
   );
   await expect(message.locator('pre')).toHaveText('Keep this source.\n');
