@@ -1,6 +1,6 @@
 # LLM Recovery Prompt
 
-Updated: 2026-10-01 (America/Denver). Application checkpoint: v0.9.0.
+Updated: 2026-10-02 (UTC). Application checkpoint: v0.10.0.
 
 This file is a durable handoff for a new chat or another LLM. Paste the whole file when repository access is unavailable, or use the launch prompt below when the receiving LLM can read GitHub. The current repository is authoritative if it has advanced beyond this checkpoint.
 
@@ -21,18 +21,18 @@ The chosen stack is TypeScript with a React/Vite client, a Node.js server, and S
 
 ## Saved checkpoint
 
-- Main baseline: `e8aea1f7c1b6f9df15b889bd02d6a029f7f50903`, v0.8.0, tree `341bac7dead8bbda117c212cc6ef8f159e8ec34a`.
-- Branch: `main`. Application version: `0.9.0`.
-- Most recent application/test commit: `d34544254c3831df87c1610aa088a12aef33aeba` — `Close the restart fixture before removing its database`.
-- Application/test Git tree: `31ba08a04dc54d5f0e41d20545611c2765a982e5`.
-- Validation branch: `codex/v0.9.0-queue-inspection-20261001`.
-- Exact application/test CI: https://github.com/drkevorkian/AIB_LLM_Built/actions/runs/36950332091
-- CI completed successfully for commit `d34544254c3831df87c1610aa088a12aef33aeba`: all six platform/runtime jobs green; all 33 Chromium tests passed on Ubuntu under both runtimes.
-- The bounded v0.9.0 iteration is complete and published. No unfinished feature patch, pending required application check, blocker, or selected v0.10.0 feature is carried over.
-- This recovery document follows the verified application/test commit. CI for the later documentation-only commit is separate; the application CI linked above does not claim to verify that newer full tree.
-- Documentation follow-up: the user requires every README checklist item to be complete and validated before version 1. This rule is recorded in README, CONTRIBUTING, and this handoff; the application remains v0.9.0.
+- Main baseline: `91bf55cda44ff8ebe8aa92f8bcb4080d083b121a`, v0.9.0, tree `e7f088e8a7f877a3c82495961ccf60c81cfb7ac3`.
+- Branch: `main`. Application version: `0.10.0`.
+- Most recent application/test commit: `fe5096471d33a5ae1a02f7c4a5ea4fb7ef8ae161` — `Cancel desktop drags before compact-layout pointer release`.
+- Application/test Git tree: `6052c74d345109e5f7ec1b9aa1f5478a3a1ec779`.
+- Validation branch: `codex/v0.10.0-panel-layout-20261002`.
+- Exact application/test CI: https://github.com/drkevorkian/AIB_LLM_Built/actions/runs/36956469856
+- CI completed successfully for commit `fe5096471d33a5ae1a02f7c4a5ea4fb7ef8ae161`: all six platform/runtime jobs green; all 38 Chromium tests passed on Ubuntu under both runtimes.
+- The bounded v0.10.0 iteration is complete and published. No unfinished feature patch, pending required application check, publication blocker, or selected v0.11.0 feature is carried over.
+- This recovery-only document follows the verified application/test commit. Its automatically triggered CI is separate; the exact application CI above does not claim to verify the newer full documentation tree.
+- The user requires every README checklist item to be completed and validated before version 1. README, CONTRIBUTING, and this handoff retain that gate; versions stay on 0.x, including optional and verification/security/packaging/release work.
 
-Current goal completed: the bounded v0.9.0 implementation, validation, publication, and recovery update. No second feature has been started. Read current main and select the next bounded unfinished README item.
+Current goal completed: the bounded v0.10.0 implementation, validation, publication, and recovery update. No second feature has been started. Read current main and select the next bounded unfinished README item.
 
 ## Working behavior already implemented
 
@@ -43,6 +43,7 @@ Current goal completed: the bounded v0.9.0 implementation, validation, publicati
 - Persistent history, threads, response sets, streamed answers, frozen context inspection, reported token usage, provider request IDs, and Markdown export.
 - Per-participant queues with running/numbered queue inspection, source-thread links, dispatch holds, shared-slot occupancy, and separate synthesis/coordinator response prerequisites. A global generation limit of four, pause/resume/stop, explicit bounded retries, turn accounting, and restart recovery remain unchanged.
 - Settings for themes, conversation defaults, workspace name/objective/turn limits, and participant connections.
+- Desktop pointer/keyboard panel sizing with browser width preferences, Settings reset, responsive fitting, and independently collapsible navigation/participants on narrow screens.
 - Explicit greeting and coordinator capability probes, sharing scheduling limits/cancellation and leaving conversation state/turn usage unchanged.
 - Confirmed workspace/thread deletion with scoped cancellation, removal of copied deleted source context, late-event rejection, and persistence of the empty state after the final workspace is deleted.
 - Workspace archive/restore, thread renaming, literal workspace metadata search, and scoped thread/message search. Restoring an archive leaves it paused and does not replay work.
@@ -50,7 +51,19 @@ Current goal completed: the bounded v0.9.0 implementation, validation, publicati
 
 Archive, deletion, retry, roster, search, and context guarantees are described in the architecture decisions. Inspect those documents before changing the relevant behavior.
 
-## Current iteration: participant queue inspection
+## Current iteration: panel layout
+
+v0.10.0 adds two focusable desktop dividers, pointer capture, Left/Right 10 px steps (Shift 50), Home/End bounds, pixel value announcements, and visible focus. Escape, cancelled/lost capture, and Settings/compact transitions roll back unfinished drags. Completed drags and keyboard adjustments save to browser storage; these controls have no conversation authority.
+
+Navigation spans 180–420 px and activity 230–480 px, with at least 400 px retained for the desktop conversation. ResizeObserver fitting temporarily reduces flexible side widths without rewriting saved preferences. An explicit adjustment after fitting saves the view's current side widths. Defaults retain the previous width breakpoints. At 1000 px or below, desktop widths/dividers yield to compact layouts and Hide/Show panel buttons. Mounted panels/composer retain drafts, selections, disclosure state, and existing send/refresh guards. Response status, workspace Stop, and Stop discussion stay in the conversation. Settings works with navigation collapsed and can reset widths/reopen compact panels.
+
+`aib-panel-layout` stores only an exact version-1 object with bounded integer navigation/activity widths. Malformed, unsupported, or unreadable values use defaults. Storage write/removal failure keeps usable view sizing with an unsaved notice. Preferences belong to this browser origin; new/reloaded views read them, without live cross-tab synchronization. Compact collapse choices last only for the mounted view, while desktop always displays both panels.
+
+Layout changes must never mutate room records, service defaults, attribution, context, grants, queues, provider lifecycle, or consumed/reserved turns. Dependencies/runtime/database versions are unchanged. The wider keyboard/screen-reader/contrast audit and real assistive-technology/touch-device review remain open. The original panel resizing/collapse checklist item is covered by this bounded feature; no broader accessibility checkbox is treated as complete.
+
+Read `docs/architecture/0011-panel-layout.md`, `docs/releases/0.10.0.md`, `src/client/PanelLayout.tsx`, and `tests/ui/layout.spec.ts` before extending this behavior.
+
+## Previous iteration: participant queue inspection
 
 v0.9.0 adds **Inspect queue** to each active participant card. It shows running generations and actual queued jobs in their stored per-participant order, exact source threads, frozen provider/model bindings, queue/start times, applicable collecting-response deadlines, and current dispatch holds. Sources are plain React text; selecting a source preserves the draft and uses the existing explicit thread-choice guard.
 
@@ -66,7 +79,7 @@ Header, local session, and startup labels now share `src/shared/version.ts`; kee
 
 Read `docs/architecture/0010-participant-queue-inspection.md`, `docs/releases/0.9.0.md`, `src/server/activity.ts`, `src/client/ParticipantQueue.tsx`, and the new activity tests before extending this feature. Queue reordering/priorities, fair global allocation, timing estimates, broader dependency graphs, and pagination remain planned.
 
-## Previous iteration: coordinator capability tests
+## Earlier iteration: coordinator capability tests
 
 v0.8.0 adds **Test coordinator** beside **Test connection** in participant settings. A successful greeting does not prove the structured-output capability needed by Agent discussion. The new check sends one native structured decision request through the saved binding, with participant roles but no thread history or workspace objective. It has no peer grant and never schedules conversation work.
 
@@ -113,11 +126,13 @@ Each Playwright run now uses its own fresh temporary database. Do not reuse accu
 
 ## Verification and honest limits
 
-Local Node 24.19.0 passed locked installation, TypeScript checks, all 184 service/engine/provider/rendering tests, formatting, production client/server builds, `git diff --check`, and a zero-vulnerability production dependency audit. The new iteration adds 18 service/HTTP tests covering order, frozen retry bindings and attribution, all/any/quorum and coordinator barriers, failed/refused/incomplete attempts, global/probe/cleanup occupancy, expiry holds, read-only state, scope, cancellation/deletion, and disk recovery.
+Local Node 24.19.0 passed locked installation, TypeScript checks, all 184 service/engine/provider/rendering tests, formatting, production client/server builds, `git diff --check`, and a zero-vulnerability production dependency audit. The dependency lock changes only the root application version.
 
-All 33 Chromium UI tests passed locally using an existing compatible Chromium 153.0.8010.0 executable through `AIB_BROWSER_PATH`. The three new flows cover safe source names/navigation/drafts, reload, narrow layouts/both themes, active/queued work, failure-to-explicit-retry prerequisites, failed reads, and old-workspace snapshot rejection. The expanded mobile queue was visually inspected. New queue browser tests use their own isolated production services and fresh databases so held work, global slots, and reload selection cannot interfere with other test files. All browser services clear cloud credentials.
+Five new isolated production-browser flows bring the suite to 38 browser tests (222 distinct tests including service/rendering). They cover keyboard direction/steps/bounds/focus, pointer capture and completed/cancelled gestures, reload/reset, malformed/blocked storage, responsive fitting without preference overwrites, both themes at 340–1800 px and the 1000/1001 breakpoint, mounted drafts, compact disclosures/Settings, active discussion/room Stop, and unchanged stored room records. Existing browser tests retain all prior routing, queue, roster, archive/deletion, rendering, clipboard, and acknowledged-send selection regressions.
 
-The first full local UI run exposed shared-service test interference at two reload assertions; isolation fixed it and all 33 tests then passed. The first candidate CI run (`36950185519`) passed both macOS jobs but found a Windows-only teardown error in the new disk-restart test: its temporary directory was removed before SQLite closed. Candidate `d34544254c3831df87c1610aa088a12aef33aeba` corrects teardown ordering; its focused 18 tests and formatting passed locally afterward. Exact-source CI run `36950332091` then passed all 184 service/rendering tests on Node 24.19.0 and 26.10.0 across Linux, Windows, and macOS, with clean installation, checks, builds, and production audits. Both Ubuntu jobs passed all 33 Chromium tests: 217 distinct tests in the release. No local Node 26 run is claimed; Node 26 validation is observed through CI. Earlier failed runs do not verify the current source.
+The first local UI command could not launch a browser; none of its five tests executed. The previously available Chromium file is truncated (30,354,432 bytes with missing ELF sections expected beyond 209 MB) and crashes with SIGSEGV even for `--version`. One short inspection confirmed the runtime problem; no repeated downloads/recovery loop was attempted. Local browser validation is therefore unavailable in this iteration. Do not reuse that executable path or claim a local UI pass.
+
+The first candidate CI (`36956047465`) passed all six service/platform gates and all 38 Ubuntu Node 24 browser tests, but Node 26 caught a real drag-cancellation race: release immediately after crossing into compact layout could save before the media-query/React effect cancelled it. The correction checks the live viewport before persisting release and cancels directly from the media-query event; the same browser regression remains intact. Its local type checks, build, formatting, and diff checks passed. Final exact-source CI `36956469856` passed all 184 service/rendering tests on Node 24.19.0/26.10.0 across Linux, Windows, and macOS, with clean installation/checks/builds and zero-vulnerability audits. Both Ubuntu jobs passed all 38 Chromium tests, including the immediate compact-transition release regression: 222 distinct tests in this release. No local Node 26 run is claimed. Older and failed runs do not verify the final source.
 
 No paid provider account or installed Ollama model was tested with real credentials. Protocol fixtures and simulation do not establish live-account/model compatibility. Do not silently use credentials or bill a provider during normal tests.
 
@@ -125,11 +140,11 @@ Signed-in ChatGPT/Grok/Gemini website transport is not implemented. This applica
 
 ## What to do next
 
-One suggested next bounded feature is keyboard-accessible desktop panel resizing, retaining browser preferences while preserving narrow layouts and visible Stop controls. This is a suggestion, not an unfinished patch. Read the full current README checklist and relevant decisions before choosing the next scope. Live-account smoke tests remain separate and require explicit authorization for provider requests.
+One suggested next bounded feature is safe, message-scoped internal footnote navigation with stable namespaced IDs and bounded keyboard targets. Preserve the link/HTML/image/source boundaries in ADR 0008. This is a suggestion, not an unfinished patch or authorization to add general relative-link navigation. Read the full current README checklist and relevant decisions before choosing the next scope. Live-account smoke tests remain separate and require explicit authorization for provider requests.
 
 1. Read current main and check whether newer commits supersede this checkpoint. Read any applicable `AGENTS.md` discovered in the new checkout; none existed in the recorded source tree.
 2. Read the README's complete TODO checklist, CONTRIBUTING, and the architecture decisions relevant to the intended change.
-3. When asked to continue, select one useful, bounded unfinished item or demonstrated bug and state the chosen scope briefly. The v0.9.0 iteration is complete; do not invent a partially completed next feature.
+3. When asked to continue, select one useful, bounded unfinished item or demonstrated bug and state the chosen scope briefly. Verify this iteration's final checkpoint first; do not invent a partially completed next feature.
 4. Implement the iteration, run appropriate validation, update README/release notes as needed, refresh this recovery file, and publish through the authorized connection.
 5. Finish with the concrete change, commit/link, completed checks, and material remaining limitations. Distinguish saved work from pending or unobserved work.
 
@@ -139,7 +154,7 @@ The complete implementation checklist belongs at the very end of README.md. Keep
 
 - The established workflow permits routine implementation, validation, documentation, and publishing completed changes directly to main. Do not ask for confirmation repeatedly for that same scope. Respect your actual system/developer instructions and the receiving user's current request.
 - Preserve user changes, real application data, original messages, attribution, frozen retry bindings, permissions, and turn accounting. Do not force-push or discard an unrelated worktree.
-- Prefer a small complete iteration to an unbounded rewrite. Do not redo the completed v0.7.0, v0.8.0, or v0.9.0 iterations or repeat passing suites without a new change, failure, or unresolved concern.
+- Prefer a small complete iteration to an unbounded rewrite. Do not redo completed prior iterations or repeat passing suites without a new change, failure, or unresolved concern.
 - UI corners should be square: prefer 0–4px radii, with none above 8px.
 - No project license has been selected. The package is private; do not add a license grant or publish it to npm.
 - Version 1 is prohibited until every item in the complete README checklist is fully completed and validated, including optional items and verification/security/packaging/release work. Keep versions on 0.x; do not remove, defer, or check off unfinished items to bypass this gate. Only an explicit user instruction may change this release requirement.
@@ -150,11 +165,11 @@ The complete implementation checklist belongs at the very end of README.md. Keep
 
 ## Checkout caveat
 
-This iteration reused `/workspace/scratch/066d1deae166/AIB_LLM_Built` after checking that its clean baseline tree exactly matched current main (`341bac7dead8bbda117c212cc6ef8f159e8ec34a`). Original source had been obtained through the authorized GitHub connection after the conventional clone endpoint was unavailable; all baseline files/tree were verified.
+This iteration reused `/workspace/scratch/066d1deae166/AIB_LLM_Built` after checking that its clean baseline tree exactly matched current main (`e7f088e8a7f877a3c82495961ccf60c81cfb7ac3`). No applicable AGENTS.md was found. Source originally came through the authorized GitHub connection after the conventional clone endpoint was unavailable.
 
-Local Git history remains an independent snapshot, not a clone of remote commit history. Local application/test commit `8025e5666641bc343956261ff69fe8faf17f59cd` and remote application/test commit `d34544254c3831df87c1610aa088a12aef33aeba` share tree `31ba08a04dc54d5f0e41d20545611c2765a982e5`. Publishing uses actual remote parents and fast-forward refs; never force-push the local snapshot or assume a normal pull can reconcile it. Prefer a fresh checkout of current main, or preserve and compare exact trees before reconciling metadata.
+Local Git history is an independent snapshot, not a clone of remote history. Local application/test commit `87018c066d5c1096fd7c24b9810b7e202919743c` and remote application/test commit `fe5096471d33a5ae1a02f7c4a5ea4fb7ef8ae161` share tree `6052c74d345109e5f7ec1b9aa1f5478a3a1ec779`. Publishing uses actual remote parents and fast-forward refs; never force-push the snapshot or assume a normal pull can reconcile it. Preserve/compare exact trees before reconciling metadata.
 
-Application feature/test changes are committed and published to main with their actual remote parents retained. This final recovery-only document follows that verified source. No uncommitted feature work or blocked check is carried over. No real data, credentials, generated assets, or test output is committed.
+Application feature/test changes are committed and published to main with actual remote parents retained. This final recovery-only document follows that verified source. No uncommitted feature work or pending required check is carried over. The truncated local browser runtime remains unavailable; browser verification was completed through CI. No real data, credentials, generated assets, or test output is committed.
 
 ## Useful paths and commands
 
@@ -163,6 +178,7 @@ Application feature/test changes are committed and published to main with their 
 - `src/server/activity.ts`: read-only activity projection.
 - `src/client/ParticipantQueue.tsx`: activity freshness, queue disclosure, prerequisites, and source navigation.
 - `src/shared/version.ts`: shared header/session/startup release label.
+- `src/client/PanelLayout.tsx` and `tests/ui/layout.spec.ts`: browser layout preference, resizing/cancellation, compact panels, and isolated browser coverage.
 - `tests/activity.test.ts` and `tests/ui/activity.spec.ts`: queue, prerequisite, occupancy, recovery, HTTP, and isolated browser coverage.
 - `src/server/store.ts`: SQLite persistence and transactions.
 - `src/server/http.ts`: HTTP contracts and request validation.
@@ -175,7 +191,7 @@ Application feature/test changes are committed and published to main with their 
 - `tests/ui/conversation.spec.ts`: Chromium workflows, including the send/refresh race regression.
 - `tests/ui/isolated-service.ts`: isolated production-service restart fixture.
 - `playwright.config.ts`: fresh per-run test data and optional `AIB_BROWSER_PATH`.
-- `docs/architecture/0001-language-and-runtime.md` through `0010-participant-queue-inspection.md`: architecture decisions.
+- `docs/architecture/0001-language-and-runtime.md` through `0011-panel-layout.md`: architecture decisions.
 - `.github/workflows/ci.yml`: six-job Node/platform matrix.
 
 Supported Node engine range is `>=24.15.0 <25 || >=26.10.0 <27`; `.nvmrc` selects 26.10.0. Use the lockfile. Do not silently upgrade dependencies or change the runtime range.
