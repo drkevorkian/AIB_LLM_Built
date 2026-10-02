@@ -461,6 +461,10 @@ TypeScript, React, Node 24, SQLite, and local browser operation were selected fo
 | M4 — Optional extensions | Browser transport or remote hosting separately scoped and validated           |
 | M5 — Release             | Security, packaging, upgrade, documentation, and release gates pass           |
 
+## Version 1 release gate
+
+Keep releases on **0.x** until **every item in the complete README checklist is fully completed and validated**. This includes entries currently labeled optional and the listed verification, security, packaging, and release work. An MVP or partial implementation does not qualify for version 1. Do not remove, defer, or mark unfinished items complete to reach `1.0.0` or any other `1.x` version. Changing this gate requires an explicit user instruction.
+
 ## Complete implementation TODO checklist
 
 This is the complete implementation checklist for the scope described above. Checked items are implemented and validated in v0.1.0–v0.9.0 or supported by a recorded scope decision. Provider adapter validation uses protocol fixtures; credentialed account/model verification remains explicitly unchecked. Partial implementations retain their unchecked original item. Optional items are explicitly marked; future discoveries may add work. Mark an item complete only with reviewable implementation or a recorded scope decision and applicable validation.

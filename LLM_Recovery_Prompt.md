@@ -30,6 +30,7 @@ The chosen stack is TypeScript with a React/Vite client, a Node.js server, and S
 - CI completed successfully for commit `d34544254c3831df87c1610aa088a12aef33aeba`: all six platform/runtime jobs green; all 33 Chromium tests passed on Ubuntu under both runtimes.
 - The bounded v0.9.0 iteration is complete and published. No unfinished feature patch, pending required application check, blocker, or selected v0.10.0 feature is carried over.
 - This recovery document follows the verified application/test commit. CI for the later documentation-only commit is separate; the application CI linked above does not claim to verify that newer full tree.
+- Documentation follow-up: the user requires every README checklist item to be complete and validated before version 1. This rule is recorded in README, CONTRIBUTING, and this handoff; the application remains v0.9.0.
 
 Current goal completed: the bounded v0.9.0 implementation, validation, publication, and recovery update. No second feature has been started. Read current main and select the next bounded unfinished README item.
 
@@ -141,6 +142,7 @@ The complete implementation checklist belongs at the very end of README.md. Keep
 - Prefer a small complete iteration to an unbounded rewrite. Do not redo the completed v0.7.0, v0.8.0, or v0.9.0 iterations or repeat passing suites without a new change, failure, or unresolved concern.
 - UI corners should be square: prefer 0–4px radii, with none above 8px.
 - No project license has been selected. The package is private; do not add a license grant or publish it to npm.
+- Version 1 is prohibited until every item in the complete README checklist is fully completed and validated, including optional items and verification/security/packaging/release work. Keep versions on 0.x; do not remove, defer, or check off unfinished items to bypass this gate. Only an explicit user instruction may change this release requirement.
 - Work solo unless the user or applicable project instructions explicitly request delegation.
 - Send a concise meaningful progress update at least every 60 seconds during active work. Track only elapsed time and tool status you can actually observe.
 - A stalled or offline execution connection gets at most two short recovery attempts. Do not poll indefinitely, spend hours reconstructing source, or repeatedly start commands that cannot execute. After two unsuccessful attempts, stop dependent work and report saved work, passed checks, pending checks, and the blocker.

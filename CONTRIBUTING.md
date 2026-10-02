@@ -20,6 +20,8 @@ Run formatting, type checks, unit/service tests, and a production build. Run bro
 
 Mark a README task complete only when the entire listed item is implemented and validated. Partial implementations should be noted separately, leaving the original checkbox unchecked. Keep API credentials, local databases, test output, and generated build assets out of commits.
 
+Version 1 is blocked until every item in the complete README checklist is completed and validated, including optional entries and verification/release work. Continue with 0.x versions until then. Removing, deferring, or checking off unfinished work cannot satisfy this gate; only an explicit user instruction may change it. See the README's **Version 1 release gate**.
+
 Read [ADR 0008](docs/architecture/0008-message-presentation.md) before extending message rendering or copying. Preserve exact stored/source/context strings, keep streaming presentation literal, and treat HTML, links, code, images, and model-authored formatting as untrusted data. Do not enable raw HTML, executable highlighting, automatic navigation, remote image loads, or clipboard reads. Extend adversarial rendering/browser coverage when changing plugins, component properties, URL policies, or formatting failure handling.
 
 No project license has been selected yet. Do not add a license grant or publish a package without that decision.
