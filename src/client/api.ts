@@ -9,6 +9,7 @@ import type {
   AppSettings,
   WorkspaceSettingsInput,
   AddAgentInput,
+  AgentRemovalInput,
   ConnectionTestKind,
   ConnectionTestResult,
   RoomActivity,
@@ -131,6 +132,14 @@ export const api = {
       await request(`/rooms/${id}/participants/${agentId}`, {
         method: 'PUT',
         body: JSON.stringify({ active }),
+      })
+    ).json() as Promise<Room>,
+  removeAgent: async (id: string, agentId: string, input: AgentRemovalInput) =>
+    (
+      await request(`/rooms/${id}/participants/${agentId}`, {
+        method: 'DELETE',
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(15000),
       })
     ).json() as Promise<Room>,
   testConnection: async (id: string, agentId: string, kind: ConnectionTestKind = 'greeting') =>

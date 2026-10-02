@@ -106,44 +106,46 @@ export function inspectActivity(room: Room, runtime: RuntimeActivity): RoomActiv
     roomRevision: room.revision,
     observedAt: runtime.now.toISOString(),
     capacity: { inUse: runtime.inUse, limit: runtime.limit },
-    participants: room.agents.map((agent) => {
-      const jobs = jobsByAgent.get(agent.id) ?? [];
-      const running = jobs.filter((job) => job.status === 'running').map(describe);
-      const queued = jobs
-        .filter((job) => job.status === 'queued')
-        .map((job, index) => {
-          const request = requestById.get(job.requestId)!;
-          const discussion = room.discussions.find((d) => d.id === job.discussionId);
-          const blockers: QueueBlocker[] = [];
-          if (room.archivedAt) blockers.push('workspace_archived');
-          if (room.status === 'paused') blockers.push('workspace_paused');
-          if (room.status === 'stopped') blockers.push('workspace_stopped');
-          if (runtime.closed) blockers.push('service_stopping');
-          if (!isAgentActive(agent)) blockers.push('participant_inactive');
-          if (runtime.activeAgentIds.has(agent.id)) blockers.push('participant_busy');
-          if (runtime.checkingAgentIds.has(agent.id)) blockers.push('connection_check');
-          if (index > 0) blockers.push('earlier_job');
-          if (runtime.inUse >= runtime.limit) blockers.push('service_capacity');
-          if (room.turnsUsed >= room.maxTurns) blockers.push('turn_limit');
-          if (
-            request.status === 'collecting' &&
-            Date.parse(request.deadlineAt) <= runtime.now.getTime()
-          )
-            blockers.push('deadline_elapsed');
-          if (discussion && ['completed', 'cancelled'].includes(discussion.status))
-            blockers.push('discussion_closed');
-          if (discussion && discussion.turnsUsed >= discussion.maxTurns)
-            blockers.push('discussion_turn_limit');
-          return { ...describe(job), position: index + 1, blockers };
-        });
-      return {
-        agentId: agent.id,
-        checkingConnection: runtime.checkingAgentIds.has(agent.id),
-        finishing: runtime.activeAgentIds.has(agent.id) && !running.length,
-        running,
-        queued,
-        prerequisites: prerequisites.get(agent.id) ?? [],
-      };
-    }),
+    participants: room.agents
+      .filter((agent) => !agent.removedAt)
+      .map((agent) => {
+        const jobs = jobsByAgent.get(agent.id) ?? [];
+        const running = jobs.filter((job) => job.status === 'running').map(describe);
+        const queued = jobs
+          .filter((job) => job.status === 'queued')
+          .map((job, index) => {
+            const request = requestById.get(job.requestId)!;
+            const discussion = room.discussions.find((d) => d.id === job.discussionId);
+            const blockers: QueueBlocker[] = [];
+            if (room.archivedAt) blockers.push('workspace_archived');
+            if (room.status === 'paused') blockers.push('workspace_paused');
+            if (room.status === 'stopped') blockers.push('workspace_stopped');
+            if (runtime.closed) blockers.push('service_stopping');
+            if (!isAgentActive(agent)) blockers.push('participant_inactive');
+            if (runtime.activeAgentIds.has(agent.id)) blockers.push('participant_busy');
+            if (runtime.checkingAgentIds.has(agent.id)) blockers.push('connection_check');
+            if (index > 0) blockers.push('earlier_job');
+            if (runtime.inUse >= runtime.limit) blockers.push('service_capacity');
+            if (room.turnsUsed >= room.maxTurns) blockers.push('turn_limit');
+            if (
+              request.status === 'collecting' &&
+              Date.parse(request.deadlineAt) <= runtime.now.getTime()
+            )
+              blockers.push('deadline_elapsed');
+            if (discussion && ['completed', 'cancelled'].includes(discussion.status))
+              blockers.push('discussion_closed');
+            if (discussion && discussion.turnsUsed >= discussion.maxTurns)
+              blockers.push('discussion_turn_limit');
+            return { ...describe(job), position: index + 1, blockers };
+          });
+        return {
+          agentId: agent.id,
+          checkingConnection: runtime.checkingAgentIds.has(agent.id),
+          finishing: runtime.activeAgentIds.has(agent.id) && !running.length,
+          running,
+          queued,
+          prerequisites: prerequisites.get(agent.id) ?? [],
+        };
+      }),
   };
 }

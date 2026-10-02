@@ -3,6 +3,7 @@ import {
   hasPendingWork,
   agentLabel,
   isAgentActive,
+  isAgentRemoved,
   maxParticipants,
   type Agent,
   type Room,
@@ -13,10 +14,12 @@ export function Participants({
   room,
   onSaved,
   onConfigure,
+  onRemove,
 }: {
   room: Room;
   onSaved: (room: Room) => void;
   onConfigure: (agent: Agent) => void;
+  onRemove: (agent: Agent) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -26,6 +29,8 @@ export function Participants({
   const [result, setResult] = useState('');
   const pending = hasPendingWork(room);
   const activeCount = room.agents.filter(isAgentActive).length;
+  const current = room.agents.filter((agent) => !isAgentRemoved(agent));
+  const removed = room.agents.filter(isAgentRemoved);
 
   async function run(work: () => Promise<Room>, message: string) {
     setBusy(true);
@@ -56,7 +61,7 @@ export function Participants({
   return (
     <div className="participant-management">
       <p className="muted">
-        {activeCount} active · {room.agents.length} / {maxParticipants} participant identities.
+        {activeCount} active · {current.length} / {maxParticipants} current participant identities.
         Deactivated participants keep their history and can be reactivated.
       </p>
       {pending && <p className="notice">Finish or stop pending work before changing the roster.</p>}
@@ -76,11 +81,8 @@ export function Participants({
         </p>
       )}
       <div className="settings-participants">
-        {room.agents.map((agent) => {
+        {current.map((agent) => {
           const active = isAgentActive(agent);
-          const revisions = (room.agentRevisions ?? [])
-            .filter((r) => r.agent.id === agent.id)
-            .toSorted((a, b) => (b.agent.configRevision ?? 0) - (a.agent.configRevision ?? 0));
           return (
             <div
               className={`settings-participant ${active ? '' : 'participant-inactive'}`}
@@ -95,27 +97,7 @@ export function Participants({
                 </small>
                 <small>Identity: {agent.id}</small>
                 <p>{agent.role}</p>
-                <details className="participant-history">
-                  <summary>Configuration history ({revisions.length})</summary>
-                  <ol>
-                    {revisions.map((revision) => (
-                      <li key={revision.agent.configRevision ?? 0}>
-                        <strong>
-                          Revision {revision.agent.configRevision ?? 0} ·{' '}
-                          {isAgentActive(revision.agent) ? 'Active' : 'Inactive'} ·{' '}
-                          {revision.agent.name}
-                        </strong>
-                        <small>
-                          {revision.agent.provider} / {revision.agent.model} ·{' '}
-                          {revision.recordedAt
-                            ? new Date(revision.recordedAt).toLocaleString()
-                            : 'Recovered legacy configuration; edit time unknown'}
-                        </small>
-                        <p>{revision.agent.role}</p>
-                      </li>
-                    ))}
-                  </ol>
-                </details>
+                <ParticipantHistory room={room} agentId={agent.id} />
               </div>
               <div className="participant-actions">
                 <button disabled={busy} onClick={() => onConfigure(agent)}>
@@ -138,6 +120,20 @@ export function Participants({
                   }}
                 >
                   {active ? 'Deactivate' : 'Reactivate'} {agentLabel(room, agent.id)}
+                </button>
+                <button
+                  className="danger-button"
+                  disabled={
+                    busy || pending || Boolean(room.archivedAt) || (active && activeCount === 1)
+                  }
+                  title={
+                    active && activeCount === 1
+                      ? 'Keep at least one active participant.'
+                      : undefined
+                  }
+                  onClick={() => onRemove(agent)}
+                >
+                  Remove {agentLabel(room, agent.id)}
                 </button>
               </div>
             </div>
@@ -194,10 +190,14 @@ export function Participants({
         <button
           className="add-participant-button"
           disabled={
-            busy || pending || Boolean(room.archivedAt) || room.agents.length >= maxParticipants
+            busy || pending || Boolean(room.archivedAt) || current.length >= maxParticipants
           }
           onClick={() => {
-            setName(`AI ${String.fromCharCode(65 + room.agents.length)}`);
+            setName(
+              room.agents.length < 26
+                ? `AI ${String.fromCharCode(65 + room.agents.length)}`
+                : `Participant ${room.agents.length + 1}`,
+            );
             setError('');
             setResult('');
             setAdding(true);
@@ -206,12 +206,76 @@ export function Participants({
           Add participant
         </button>
       )}
-      {room.agents.length >= maxParticipants && (
+      {current.length >= maxParticipants && (
         <p className="muted">
-          This workspace has reached its identity limit. Reactivate an existing participant or
-          create another workspace.
+          This workspace has reached its current roster limit, including inactive participants.
+          Remove an identity to free a slot, or create another workspace.
         </p>
       )}
+      {removed.length > 0 && (
+        <details className="removed-participants">
+          <summary>Removed participants ({removed.length})</summary>
+          <p className="muted">
+            Retained records are read-only and cannot be reactivated. Messages, usage, prior
+            settings, and frozen context remain. Thread deletion removes its conversation data; only
+            workspace deletion removes retained participant settings. Removal does not erase data or
+            prevent retained conversation text from reaching a provider.
+          </p>
+          {removed.map((agent) => (
+            <div
+              className="removed-participant"
+              key={agent.id}
+              data-agent-id={agent.id}
+              role="group"
+              aria-label={`Removed participant ${agent.name} (${agent.id})`}
+            >
+              <strong>
+                {agent.name} · #{agent.rosterNumber}
+              </strong>
+              <small>Identity: {agent.id}</small>
+              <small>Removed {new Date(agent.removedAt!).toLocaleString()}</small>
+              <small>
+                {agent.provider} / {agent.model}
+              </small>
+              <p>{agent.role}</p>
+              <ParticipantHistory room={room} agentId={agent.id} />
+            </div>
+          ))}
+        </details>
+      )}
     </div>
+  );
+}
+
+function ParticipantHistory({ room, agentId }: { room: Room; agentId: string }) {
+  const revisions = (room.agentRevisions ?? [])
+    .filter((r) => r.agent.id === agentId)
+    .toSorted((a, b) => (b.agent.configRevision ?? 0) - (a.agent.configRevision ?? 0));
+  return (
+    <details className="participant-history">
+      <summary>Configuration history ({revisions.length})</summary>
+      <ol>
+        {revisions.map((revision) => (
+          <li key={revision.agent.configRevision ?? 0}>
+            <strong>
+              Revision {revision.agent.configRevision ?? 0} ·{' '}
+              {isAgentRemoved(revision.agent)
+                ? 'Removed'
+                : isAgentActive(revision.agent)
+                  ? 'Active'
+                  : 'Inactive'}{' '}
+              · {revision.agent.name}
+            </strong>
+            <small>
+              {revision.agent.provider} / {revision.agent.model} ·{' '}
+              {revision.recordedAt
+                ? new Date(revision.recordedAt).toLocaleString()
+                : 'Recovered legacy configuration; edit time unknown'}
+            </small>
+            <p>{revision.agent.role}</p>
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }

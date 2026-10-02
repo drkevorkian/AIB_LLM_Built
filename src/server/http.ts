@@ -225,6 +225,18 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
           json(res, 200, engine.store.get(roomId));
           return;
         }
+        if (participantMatch[2] && req.method === 'DELETE') {
+          json(
+            res,
+            200,
+            engine.removeAgent(
+              roomId,
+              idSchema.parse(participantMatch[2]),
+              (await body(req)) as Parameters<typeof engine.removeAgent>[2],
+            ),
+          );
+          return;
+        }
         throw new AppError(405, 'Method not supported.');
       }
       const match =

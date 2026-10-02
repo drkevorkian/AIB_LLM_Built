@@ -19,6 +19,7 @@ export function SettingsPage({
   onDefaultsSaved,
   onWorkspaceSaved,
   onConfigure,
+  onRemoveParticipant,
   onArchiveWorkspace,
   onDeleteWorkspace,
   onBack,
@@ -31,6 +32,7 @@ export function SettingsPage({
   onDefaultsSaved: (settings: AppSettings) => void;
   onWorkspaceSaved: (room: Room) => void;
   onConfigure: (agent: Agent) => void;
+  onRemoveParticipant: (agent: Agent) => void;
   onArchiveWorkspace: () => void;
   onDeleteWorkspace: () => void;
   onBack: () => void;
@@ -103,6 +105,7 @@ export function SettingsPage({
             room={room}
             onSaved={onWorkspaceSaved}
             onConfigure={onConfigure}
+            onRemove={onRemoveParticipant}
           />
         ) : (
           <p className="muted">Participant settings appear when a workspace is selected.</p>

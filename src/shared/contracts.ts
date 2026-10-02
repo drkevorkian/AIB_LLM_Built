@@ -44,8 +44,12 @@ export interface ConnectionTestResult {
 export const maxParticipants = 8;
 export const addAgentSchema = agentSettingsSchema.pick({ name: true, role: true });
 export const agentActivationSchema = z.strictObject({ active: z.boolean() });
+export const agentRemovalSchema = z.strictObject({
+  expectedRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+});
 export type AddAgentInput = z.input<typeof addAgentSchema>;
 export type AgentActivationInput = z.input<typeof agentActivationSchema>;
+export type AgentRemovalInput = z.input<typeof agentRemovalSchema>;
 export const createRoomSchema = z.strictObject({
   title: z.string().trim().min(1).max(100),
   objective: z.string().trim().max(3000).default(''),
@@ -183,6 +187,10 @@ export interface Agent {
   configRevision?: number;
   /** Legacy participants are active when this field is absent. */
   active?: boolean;
+  /** Removal retires invocation eligibility permanently, retaining attribution and history. */
+  removedAt?: string;
+  /** Application-assigned ordinal; removed identities never release or reuse this number. */
+  rosterNumber?: number;
   color: 'teal' | 'amber' | 'violet';
 }
 export interface AgentRevision {
@@ -191,7 +199,10 @@ export interface AgentRevision {
   recordedAt: string | null;
 }
 export function isAgentActive(agent: Agent): boolean {
-  return agent.active !== false;
+  return !isAgentRemoved(agent) && agent.active !== false;
+}
+export function isAgentRemoved(agent: Agent): boolean {
+  return Boolean(agent.removedAt);
 }
 export interface Thread {
   id: string;
@@ -425,11 +436,13 @@ export function agentLabel(
   agentId: string,
   snapshotId?: string | null,
 ): string {
-  const roster = room.snapshots.find((s) => s.id === snapshotId)?.agents ?? room.agents;
+  const roster =
+    room.snapshots.find((s) => s.id === snapshotId)?.agents ??
+    room.agents.filter((a) => !isAgentRemoved(a));
   const agent = agentAtSnapshot(room, agentId, snapshotId);
   if (!agent) return agentId;
   const position = roster.findIndex((a) => a.id === agentId);
   return position >= 0 && roster.filter((a) => a.name === agent.name).length > 1
-    ? `${agent.name} · #${position + 1}`
+    ? `${agent.name} · #${agent.rosterNumber ?? position + 1}`
     : agent.name;
 }

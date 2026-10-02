@@ -27,6 +27,7 @@ import {
   agentAtSnapshot,
   agentLabel,
   isAgentActive,
+  isAgentRemoved,
   maxParticipants,
   hasPendingWork,
   maxBulkWorkspaces,
@@ -37,6 +38,7 @@ type DeleteTarget =
   | { kind: 'thread'; id: string; roomId: string; title: string };
 type ArchiveTarget = { id: string; title: string; archived: boolean };
 type RenameTarget = { roomId: string; id: string; title: string };
+type ParticipantRemovalTarget = { room: Room; agent: Agent };
 
 function Glyph({
   kind,
@@ -109,6 +111,9 @@ export function App() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<ArchiveTarget | null>(null);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [participantRemoval, setParticipantRemoval] = useState<ParticipantRemovalTarget | null>(
+    null,
+  );
   const [workspaceSearch, setWorkspaceSearch] = useState('');
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('active');
   const [threadSearch, setThreadSearch] = useState('');
@@ -234,12 +239,14 @@ export function App() {
     )
       setReply(null);
     if (inspect && !room.messages.some((m) => m.id === inspect.id)) setInspect(null);
+    if (settings && !room.agents.some((a) => a.id === settings.id && !isAgentRemoved(a)))
+      setSettings(null);
     if (
       renameTarget &&
       (renameTarget.roomId !== room.id || !room.threads.some((t) => t.id === renameTarget.id))
     )
       setRenameTarget(null);
-  }, [room, threadId, reply, inspect]);
+  }, [room, threadId, reply, inspect, settings]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('aib-theme', theme);
@@ -897,7 +904,7 @@ export function App() {
               }}
             />
           ))}
-          {room?.agents.some((agent) => !isAgentActive(agent)) && (
+          {room?.agents.some((agent) => !isAgentActive(agent) && !isAgentRemoved(agent)) && (
             <button className="quiet" onClick={() => setSettingsPage(true)}>
               Manage inactive participants
             </button>
@@ -967,6 +974,9 @@ export function App() {
                 setArchiveTarget({ id: room.id, title: room.title, archived: !room.archivedAt });
             }}
             onConfigure={setSettings}
+            onRemoveParticipant={(agent) => {
+              if (room) setParticipantRemoval({ room, agent });
+            }}
             onDeleteWorkspace={() => {
               if (room) setDeleteTarget({ kind: 'workspace', id: room.id, title: room.title });
             }}
@@ -994,6 +1004,20 @@ export function App() {
           target={deleteTarget}
           onClose={() => setDeleteTarget(null)}
           onDelete={() => remove(deleteTarget)}
+        />
+      )}
+      {participantRemoval && (
+        <RemoveParticipantConfirmation
+          target={participantRemoval}
+          onClose={() => {
+            setParticipantRemoval(null);
+            setTick((v) => v + 1);
+          }}
+          onRemoved={(next) => {
+            if (selectedRoomId.current === next.id) workspaceSaved(next);
+            else setTick((v) => v + 1);
+            setParticipantRemoval(null);
+          }}
         />
       )}
       {bulkOpen && (
@@ -1162,9 +1186,11 @@ function MessageCard({
               (agent && !isAgentActive(agent))
             }
             title={
-              agent && !isAgentActive(agent)
-                ? 'Reactivate this participant in Settings to reply.'
-                : undefined
+              agent && isAgentRemoved(agent)
+                ? 'This participant was removed. Ask a current participant a new question.'
+                : agent && !isAgentActive(agent)
+                  ? 'Reactivate this participant in Settings to reply.'
+                  : undefined
             }
           >
             Reply to {agent ? nameOf(room, agent.id) : 'message'}
@@ -2099,6 +2125,90 @@ function BulkWorkspaces({
             </div>
           </>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+function RemoveParticipantConfirmation({
+  target,
+  onClose,
+  onRemoved,
+}: {
+  target: ParticipantRemovalTarget;
+  onClose: () => void;
+  onRemoved: (room: Room) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [rejected, setRejected] = useState(false);
+  const [error, setError] = useState('');
+  async function remove() {
+    setBusy(true);
+    try {
+      onRemoved(
+        await api.removeAgent(target.room.id, target.agent.id, {
+          expectedRevision: target.room.revision,
+        }),
+      );
+    } catch (e) {
+      setError(
+        !(e instanceof ApiError) || e.status >= 500
+          ? 'Removal may have completed. Close and refresh to inspect the participant before choosing another action.'
+          : errorText(e),
+      );
+      setRejected(true);
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title="Remove participant?"
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <div className="delete-confirmation">
+        <p className="delete-name">{nameOf(target.room, target.agent.id)}</p>
+        <p className="removal-identities">
+          Workspace: {target.room.title} ({target.room.id})<br />
+          Participant ID: {target.agent.id}
+        </p>
+        <p>
+          Remove this exact identity permanently from the current roster and free one participant
+          slot. It cannot be reactivated. Deactivation remains available for a reversible change.
+        </p>
+        <p>
+          Keep all messages, consumed turns, configuration history, and original workflow/context
+          records. Removed history stays readable and may remain in future conversation context. New
+          questions exclude its role and connection settings from their rosters. Retrying eligible
+          work keeps its original frozen context. Failed work requiring this identity cannot be
+          retried; ask a new question with current participants.
+        </p>
+        <p className="muted">
+          This retains {target.room.messages.filter((m) => m.authorId === target.agent.id).length}{' '}
+          authored messages and{' '}
+          {(target.room.agentRevisions ?? []).filter((r) => r.agent.id === target.agent.id).length}{' '}
+          existing configuration revisions. Removal is not data erasure or a privacy control. Finish
+          or stop pending work and wait for connection/request cleanup first. A changed workspace
+          requires a new review.
+        </p>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="settings-actions">
+          <button autoFocus disabled={busy} onClick={onClose}>
+            {rejected ? 'Close and refresh participants' : 'Cancel'}
+          </button>
+          <button
+            className="danger-button"
+            disabled={busy || rejected}
+            onClick={() => void remove()}
+          >
+            {busy ? 'Removing…' : 'Remove participant permanently'}
+          </button>
+        </div>
       </div>
     </Modal>
   );

@@ -2,7 +2,7 @@
 
 ## Scope and identity
 
-Each v0.5 workspace remains one room. Creation accepts a participant count from 1 to 8, defaulting to 3; the welcome workspace retains AI A, AI B, and AI C. The eight-identity cap includes inactive participants. At least one participant must remain active. Participant removal and larger rosters require a separate policy and are not implemented here.
+Each v0.5 workspace remains one room. Creation accepts a participant count from 1 to 8, defaulting to 3; the welcome workspace retains AI A, AI B, and AI C. The eight-identity cap includes inactive participants. At least one participant must remain active. Participant removal is a separately specified v0.14.0 addition in [ADR 0015](0015-participant-removal.md). The cap now applies to current participants, including inactive ones; removed records retain their original identity/number outside the current roster. Larger current rosters remain unimplemented.
 
 The server assigns an immutable participant ID. Names may repeat, including when several participants use the same provider/model. Routing, queues, reply targets, usage, and configuration history use IDs. Duplicate display names receive a roster-number suffix in controls and answer labels. Since identities are retained and never reordered, the number remains stable; historical labels use the roster frozen in their snapshot.
 

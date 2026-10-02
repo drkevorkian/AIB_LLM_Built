@@ -197,6 +197,10 @@ export class RoomStore {
     // v0.2 adds optional fields; v0.1 records remain usable without rewriting history.
     room.relays ??= [];
     room.discussions ??= [];
+    // Existing rosters were append-only; recover their known ordinal without rewriting snapshots.
+    room.agents.forEach((agent, index) => {
+      agent.rosterNumber ??= index + 1;
+    });
     if (!room.agentRevisions) {
       const seen = new Set<string>();
       room.agentRevisions = [];

@@ -18,6 +18,7 @@ import type {
   WorkspaceSettingsInput,
   AddAgentInput,
   AgentActivationInput,
+  AgentRemovalInput,
   WorkspaceArchiveInput,
   ThreadSettingsInput,
   ConnectionTestKind,
@@ -35,7 +36,9 @@ import {
   workspaceSettingsSchema,
   addAgentSchema,
   agentActivationSchema,
+  agentRemovalSchema,
   isAgentActive,
+  isAgentRemoved,
   agentLabel,
   hasPendingWork,
   maxParticipants,
@@ -109,6 +112,7 @@ export class ConversationEngine extends EventEmitter {
       model: 'simulation-v1',
       configRevision: 0,
       active: true,
+      rosterNumber: index + 1,
     }));
     const room: Room = {
       schemaVersion: 1,
@@ -494,6 +498,8 @@ export class ConversationEngine extends EventEmitter {
     this.store.mutate(roomId, (room) => {
       const agent = room.agents.find((a) => a.id === input.agentId);
       if (!agent) throw new AppError(400, 'Unknown participant.');
+      if (isAgentRemoved(agent))
+        throw new AppError(409, 'This participant was removed. Its retained history is read-only.');
       this.assertRosterEditable(room);
       const next: Agent = { ...agent, ...input, configRevision: (agent.configRevision ?? 0) + 1 };
       delete (next as Agent & { agentId?: string }).agentId;
@@ -520,10 +526,10 @@ export class ConversationEngine extends EventEmitter {
     const input = addAgentSchema.parse(raw);
     const agent = this.store.mutate(roomId, (room) => {
       this.assertRosterEditable(room);
-      if (room.agents.length >= maxParticipants)
+      if (room.agents.filter((a) => !isAgentRemoved(a)).length >= maxParticipants)
         throw new AppError(
           409,
-          `A workspace supports at most ${maxParticipants} participant identities, including inactive ones.`,
+          `A workspace supports at most ${maxParticipants} current participant identities, including inactive ones.`,
         );
       const agent: Agent = {
         id: this.id(),
@@ -533,7 +539,10 @@ export class ConversationEngine extends EventEmitter {
         model: 'simulation-v1',
         configRevision: 0,
         active: true,
+        rosterNumber: room.agents.length + 1,
       };
+      if (room.agents.some((a) => a.id === agent.id))
+        throw new AppError(409, 'Generated participant identity already exists. Create again.');
       room.agents.push(agent);
       this.recordAgent(room, agent);
       this.audit(room, 'agent.added', `${agent.name} added in simulation (${agent.id}).`);
@@ -548,6 +557,8 @@ export class ConversationEngine extends EventEmitter {
     this.store.mutate(roomId, (room) => {
       const agent = room.agents.find((a) => a.id === agentId);
       if (!agent) throw new AppError(400, 'Unknown participant.');
+      if (isAgentRemoved(agent))
+        throw new AppError(409, 'Removed participants cannot be reactivated or edited.');
       this.assertRosterEditable(room);
       if (isAgentActive(agent) === input.active) return;
       if (!input.active && room.agents.filter(isAgentActive).length === 1)
@@ -562,6 +573,34 @@ export class ConversationEngine extends EventEmitter {
       );
     });
     this.changed(roomId);
+  }
+
+  removeAgent(roomId: string, agentId: string, raw: AgentRemovalInput): Room {
+    const input = agentRemovalSchema.parse(raw);
+    if (this.closed) throw new AppError(409, 'The service is shutting down.');
+    this.store.mutate(roomId, (room) => {
+      const agent = room.agents.find((a) => a.id === agentId);
+      if (!agent) throw new AppError(400, 'Unknown participant.');
+      if (isAgentRemoved(agent)) throw new AppError(409, 'This participant was already removed.');
+      if (room.revision !== input.expectedRevision)
+        throw new AppError(409, 'Workspace changed. Close and review this participant again.');
+      this.assertRosterEditable(room);
+      if ([...this.active.values()].some((task) => task.roomId === roomId))
+        throw new AppError(409, 'Wait for request cleanup to finish before removing participants.');
+      if (room.agents.filter(isAgentActive).length <= (isAgentActive(agent) ? 1 : 0))
+        throw new AppError(409, 'Keep at least one active participant in this workspace.');
+      agent.active = false;
+      agent.removedAt = this.timestamp();
+      agent.configRevision = (agent.configRevision ?? 0) + 1;
+      this.recordAgent(room, agent);
+      this.audit(
+        room,
+        'agent.removed',
+        `${agent.name} removed (${agent.id}). Identity, history, usage, and prior context retained; this identity cannot be reactivated.`,
+      );
+    });
+    this.changed(roomId);
+    return this.store.get(roomId);
   }
 
   private assertRosterEditable(room: Room): void {
@@ -591,6 +630,8 @@ export class ConversationEngine extends EventEmitter {
     this.assertWorkspaceOpen(room);
     const agent = room.agents.find((a) => a.id === agentId);
     if (!agent) throw new AppError(400, 'Unknown participant.');
+    if (isAgentRemoved(agent))
+      throw new AppError(409, 'Removed participants cannot run connection tests.');
     if (!isAgentActive(agent))
       throw new AppError(409, 'Reactivate this participant before testing its connection.');
     if (
@@ -970,6 +1011,11 @@ export class ConversationEngine extends EventEmitter {
         ...(room.relays.find((r) => r.id === request.relayId)?.order ?? []),
         ...(room.discussions.find((d) => d.id === previous.discussionId)?.allowedPeerIds ?? []),
       ]);
+      if ([...workflowIds].some((id) => room.agents.some((a) => a.id === id && isAgentRemoved(a))))
+        throw new AppError(
+          409,
+          'This workflow requires a removed participant. Ask a new question with current participants.',
+        );
       if ([...workflowIds].some((id) => !room.agents.some((a) => a.id === id && isAgentActive(a))))
         throw new AppError(
           409,
@@ -1814,7 +1860,7 @@ export class ConversationEngine extends EventEmitter {
       id: this.id(),
       sequence: room.messageSequence ?? room.messages.reduce((n, m) => Math.max(n, m.sequence), 0),
       objective: room.objective,
-      agents: structuredClone(room.agents),
+      agents: structuredClone(room.agents.filter((a) => !isAgentRemoved(a))),
       messages: messages.map(({ id, authorId, type, body, authorName }) => {
         const source = room.messages.find((m) => m.id === id);
         return {

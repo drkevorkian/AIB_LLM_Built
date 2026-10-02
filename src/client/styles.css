@@ -2090,6 +2090,30 @@ progress::-moz-progress-bar {
 .participant-history li {
   margin-top: 14px;
 }
+.removed-participants {
+  margin-top: 22px;
+  font-size: 12px;
+}
+.removed-participants > summary {
+  cursor: pointer;
+}
+.removed-participant {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px dashed var(--line);
+  overflow-wrap: anywhere;
+}
+.removed-participant small {
+  display: block;
+  margin-top: 5px;
+  color: var(--subtle);
+}
+.removal-identities {
+  overflow-wrap: anywhere;
+}
+.delete-confirmation .settings-actions {
+  flex-wrap: wrap;
+}
 .add-participant-button {
   margin-top: 16px;
 }

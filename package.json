@@ -1,6 +1,6 @@
 {
   "name": "aib-llm-built",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "private": true,
   "type": "module",
   "description": "A local, persistent conversation room for independent LLM agents.",

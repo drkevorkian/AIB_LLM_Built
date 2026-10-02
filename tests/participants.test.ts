@@ -433,7 +433,9 @@ test('participant HTTP commands enforce authentication, origin, strict fields, l
       201,
     );
     assert.equal((await send(`${base}/api/rooms/missing/participants`, 'POST', input)).status, 404);
-    assert.equal((await fetch(target, { method: 'DELETE', headers })).status, 405);
+    const beforeRemoval = f.store.get(f.room.id);
+    assert.equal((await fetch(target, { method: 'DELETE', headers })).status, 400);
+    assert.deepEqual(f.store.get(f.room.id), beforeRemoval);
   } finally {
     await app.close();
   }
