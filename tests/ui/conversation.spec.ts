@@ -401,7 +401,7 @@ test('a delayed post-send refresh preserves the next draft and keeps consecutive
     expect(final.messages[1]!.body).toBe('Draft typed while the history refresh waits.');
     expect(final.turnsUsed).toBe(0);
 
-    await page.getByRole('button', { name: 'All messages' }).click();
+    await page.getByRole('button', { name: /^All messages(?: \d+)?$/ }).click();
     await page.getByLabel('Message', { exact: true }).fill('Another retained thread.');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.locator('.thread-entry')).toHaveCount(2);
@@ -438,7 +438,7 @@ test('a delayed post-send refresh preserves the next draft and keeps consecutive
     expect(selected.messages).toHaveLength(5);
     expect(selected.messages.at(-1)!.threadId).toBe(accepted.threads[0]!.id);
     await expect(page.locator('.send-button')).toHaveText('Send');
-    await page.getByRole('button', { name: 'All messages' }).click();
+    await page.getByRole('button', { name: /^All messages(?: \d+)?$/ }).click();
     gate = new Promise<void>((done) => {
       release = done;
     });
@@ -446,7 +446,7 @@ test('a delayed post-send refresh preserves the next draft and keeps consecutive
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.locator('.send-button')).toHaveText('Updating…');
     // Choosing the already-selected null thread is still an explicit human choice.
-    await page.getByRole('button', { name: 'All messages' }).click();
+    await page.getByRole('button', { name: /^All messages(?: \d+)?$/ }).click();
     await page.getByLabel('Message', { exact: true }).fill('Draft for All messages.');
     release();
     await expect(page.locator('.send-button')).toBeEnabled();
@@ -476,7 +476,7 @@ test('a delayed post-send refresh preserves the next draft and keeps consecutive
         .fill('Navigation before send acknowledgment.');
       await page.getByRole('button', { name: 'Send', exact: true }).click();
       await expect(page.locator('.send-button')).toHaveText('Sending…');
-      await page.getByRole('button', { name: 'All messages' }).click();
+      await page.getByRole('button', { name: /^All messages(?: \d+)?$/ }).click();
       releaseAcknowledgement();
       await expect(page.locator('.send-button')).toBeEnabled();
       await expect(page.getByRole('heading', { name: title, exact: true, level: 1 })).toBeVisible();
