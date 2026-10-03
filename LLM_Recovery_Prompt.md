@@ -1,6 +1,6 @@
 # LLM Recovery Prompt
 
-Updated: 2026-10-03 (UTC). Application checkpoint: v0.18.0.
+Updated: 2026-10-03 (UTC). Application checkpoint: v0.19.0.
 
 This file is a durable handoff for a new chat or another LLM. Paste the whole file when repository access is unavailable, or use the launch prompt below when the receiving LLM can read GitHub. The current repository is authoritative if it has advanced beyond this checkpoint.
 
@@ -21,18 +21,18 @@ The chosen stack is TypeScript with a React/Vite client, a Node.js server, and S
 
 ## Saved checkpoint
 
-- Main baseline: `4253aea3c772c26fe24091e9064b1f8d02a11b55`, v0.17.0, complete tree `b1400e4b994e55380dce3aebf63e08b208a945cb`. Its automatic full-main CI `37100958835` was independently confirmed successful in all six jobs before this iteration.
-- Branch: `main`. Application version: `0.18.0`.
-- Most recent application/test commit: `037de3aabce5ab906eef2e957ace9129b7ca9865` — immediate human interjections with recorded priorities and optional dispatch pause. Its exact tested application/test Git tree is `3faf856b1924ed459c4181182f1d30382f12f444`.
-- Validation branch: `codex/v0.18.0-human-interjections-20261003`.
-- Exact application/test CI: https://github.com/drkevorkian/AIB_LLM_Built/actions/runs/37102501007
-- Exact-source CI completed successfully for that commit: all six platform/runtime jobs passed 314 source tests, TypeScript/format checks, production builds, and zero-vulnerability production audits. All 67 Chromium tests passed under both supported Ubuntu runtimes: 381 distinct source/browser tests.
-- The bounded v0.18.0 iteration is complete and published. No unfinished feature patch, pending required application check, publication blocker, or selected v0.19.0 feature is carried over.
+- Main baseline: `651366b9eed0af12b716158e1cb0716f652d7846`, v0.18.0, complete tree `dd2b28157e7a51dfa3ef10fde58b8650458261b2`. Its automatic full-main CI `37102840044` was independently confirmed successful in all six jobs before this iteration.
+- Branch: `main`. Application version: `0.19.0`.
+- Most recent application/test commit: `c5ec43497107abb0648535c61da7c54f8452e2db` — complete verification pipeline with pinned lint gate. Its exact tested application/test Git tree is `2777a812d8fffde1c0fe54c57aa317e61b0217d1`.
+- Validation branch: `codex/v0.19.0-verification-pipeline-20261003`.
+- Exact application/test CI: https://github.com/drkevorkian/AIB_LLM_Built/actions/runs/37123845938
+- Exact-source CI completed successfully for that commit: all six platform/runtime jobs passed lint, 317 source tests, strict TypeScript/format checks, production builds, and zero-vulnerability production audits. All 67 Chromium tests passed under both supported Ubuntu runtimes: 384 distinct source/browser tests.
+- The bounded v0.19.0 iteration is complete and published. No unfinished feature patch, pending required application check, publication blocker, or selected v0.20.0 feature is carried over.
 - This recovery-only document follows the verified application/test commit. Its automatic main CI is a separate full-tree check; the source run does not verify newer documentation. Inspect current main's run independently when resuming.
-- The user's scope asks to finish 1–5 original checkboxes per iteration. Exactly one original entry is completed in v0.18.0: section 11's immediate human-interjection event recording. All 424 original entries remain in their original order/text; 176 remain unchecked. No next feature has been started or selected for v0.19.0.
+- The user's scope asks to finish 1–5 original checkboxes per iteration. Exactly one original entry is completed in v0.19.0: section 2's formatting, linting, static checks, and CI workflows. All 424 original entries retain their original order/text; 175 remain unchecked. No next feature has been started or selected for v0.20.0.
 - Every README item must be fully implemented and validated before version 1, including optional and verification/security/packaging/release work. Versions stay on 0.x. Compound items with unfinished work stay unchecked; do not remove or defer entries to bypass the gate.
 
-Current goal completed: bounded v0.18.0 implementation, validation, main publication, and recovery update, including one original checkbox. Read current main and select the next bounded unfinished item.
+Current goal completed: bounded v0.19.0 implementation, validation, main publication, and recovery update, including one original checkbox. Read current main and select the next bounded unfinished item.
 
 ## Working behavior already implemented
 
@@ -49,11 +49,27 @@ Current goal completed: bounded v0.18.0 implementation, validation, main publica
 - Confirmed workspace/thread deletion with scoped cancellation, removal of copied deleted source context, late-event rejection, and persistence of the empty state after the final workspace is deleted.
 - Workspace archive/restore, thread renaming, literal workspace metadata search, and scoped thread/message search. Restoring an archive leaves it paused and does not replay work.
 - Confirmed atomic archive/restore/deletion of 1–25 exact selected workspaces, with named previews, cancellation before confirmation, stale-preview rejection, and unchanged unrelated work.
+- Immediate addressed human interjections with recorded priorities, observed queued/active work, optional room dispatch pause, safe replay, and retained original workflow contexts.
+- Pinned lint, strict TypeScript, source tests, formatting, builds, audits, and a six-job CI matrix with Chromium on both Ubuntu runtimes.
 - Simulated providers plus implemented API adapters for OpenAI, xAI/Grok, Gemini, Ollama, and OpenAI-compatible servers.
 
 Archive, deletion, retry, roster, search, and context guarantees are described in the architecture decisions. Inspect those documents before changing the relevant behavior.
 
-## Current iteration: immediate human interjection records
+## Current iteration: complete verification pipeline
+
+v0.19.0 adds the missing lint stage to the existing formatting, strict TypeScript, tests, build, audit, and CI gates. Oxlint 1.86.0 is an exact development dependency; the lockfile retains platform bindings and integrity metadata. Existing dependency package records and production dependencies are unchanged. The selected tool has no install script, requires no new script permission, and preserves the existing TypeScript 7 compiler and Node range. Current typescript-eslint peer metadata excludes TypeScript 7; do not force an incompatible peer setup or downgrade the compiler for lint.
+
+`npm run lint` uses the pinned local binary, `.oxlintrc.json`, and repository discovery. Core/TypeScript/Unicorn/Oxc correctness rules are errors; eval, implied eval, and Function-constructor generation are explicitly prohibited. Warnings and unused suppression directives fail. Source/client/server/shared, TSX, source/browser tests, root tooling, and new code modules are included without a maintained file list. Dependencies, builds, local application data, coverage, and browser reports are excluded. Lint does not apply fixes, execute fixture code, use external JS plugins, or enable experimental type-aware/type-check modes.
+
+`npm run check` now runs lint → strict TypeScript → source tests → formatting with fail-fast chaining. All six supported platform/runtime CI jobs call that same command after locked installation, followed by builds and a production audit; both Ubuntu runtimes retain the complete Chromium suite. The combined CI step is named; action hashes and read-only permissions remain pinned. Prettier owns formatting, TypeScript owns semantic types, and lint supplements their existing responsibilities rather than replacing runtime schemas, provider/workflow tests, or security review.
+
+Three synthetic provider fixtures now explicitly assert authentication headers exist before dereferencing them, preserving their exact OpenAI/xAI/Gemini authentication and protocol assertions. The message URL filter's expression and behavior remain exact; one line-scoped exception explains its intentional rejection of control characters. Unused exceptions fail, so future edits cannot silently retain a stale suppression. No conversation/context/routing/permission/storage behavior changes.
+
+Three subprocess integration tests invoke the actual committed lint command options with the same configuration in isolated temporary directories. Negative fixtures require real failing exits for executable dynamic code, malformed syntax, unexplained control-character regexes, and unused suppressions. Positive fixtures retain quoted model data and intentional security filters. Discovery covers new client/server/browser/root modules and excludes generated/local-data paths. Test source is never executed or submitted to a provider. Children have a ten-second bound and must exit normally; timeouts/crashes do not masquerade as expected lint failures.
+
+Read ADR 0020 before changing the pipeline. The selected lint rules do not provide React compiler/exhaustive-hook analysis, secret scanning, a complete security/a11y/dependency-license review, or proof of correctness. These require separately scoped behavior/security work. The original compound formatting/lint/static-check/CI checkbox is complete; the secret-scanning/vulnerability compound checkbox remains open because vulnerability audits alone do not satisfy it. No license grant, npm publication, runtime-range, or schema change occurs.
+
+## Previous iteration: immediate human interjection records
 
 v0.18.0 adds an explicitly addressed Human interjection while work is queued/active. Select at least one distinct active recipient, a normal/urgent priority label, and `record_only` or `pause`. Priority is a retained human label, not queue ordering or invocation authority. The strict command rejects response collection, synthesis, relay, discussion, forged author/observed-work fields, unknown policies, and invalid recipients. Text uses the existing 12,000-character, outer-whitespace-trimming human-message contract; stored validated source remains exact thereafter.
 
@@ -69,7 +85,7 @@ The composer offers native priority/policy controls and Record interjection, def
 
 Read ADR 0019 before extending this feature. It completes only immediate recording, not instruction-changing corrections, task supersession, revised obligations, stale-result dependency exclusion, scope-specific human-input pauses, regeneration, or discussion context revision. Never infer these controls from priority labels or read-only instruction notices.
 
-## Previous iteration: read-only instruction provenance
+## Earlier iteration: read-only instruction provenance
 
 v0.17.0 derives current/stale/unknown instruction provenance for model outputs from the selected workspace, actual frozen snapshot, and exact author identity. Staleness is independent of complete, failed, refused, cancelled, interrupted, and streaming outcomes. Human/system messages receive no model-output notice. Added labels are application-owned data, not new control events or message statuses.
 
@@ -256,29 +272,27 @@ Each Playwright run now uses its own fresh temporary database. Do not reuse accu
 
 ## Verification and honest limits
 
-Local Node 24.19.0 passed locked installation, TypeScript checks, all 314 source tests, formatting, production client/server builds, `git diff --check`, and a zero-vulnerability production audit. Playwright discovery lists 67 tests in twelve files; listing is not a browser pass. Package, lockfile, and shared labels agree on 0.18.0; the lockfile changes only root version metadata. Automated comparison confirms all 424 original README entries retain their order/text, exactly one original checkbox changes, and 176 remain unchecked.
+Local Node 24.19.0 passed locked installation, lint, strict TypeScript, all 317 source tests, formatting, production client/server builds, `git diff --check`, and both full and production dependency audits with zero reported vulnerabilities. Playwright discovery lists 67 tests in twelve files; listing is not a browser pass. Package, lockfile, and shared release labels agree on 0.19.0. The lockfile adds only the pinned development lint tool/platform bindings and root version metadata; all existing dependency package records are unchanged. Automated comparison confirms all 424 original README entries retain their original order/text, exactly one original checkbox changes, and 175 remain unchecked.
 
-Fourteen new source tests cover immediate recording during active parallel work, no-generation normal/urgent record-only input, fresh cross-thread attributed context, original synthesis/relay/discussion continuations, forged/malformed authority rejection, replay after Resume and conflicting commands, previous send hashes, injected SQLite rollback, real persistence/restart, deletion/redaction/tombstones, archive/Stop/shutdown controls, unchanged wall-clock deadlines, authenticated scoped no-store HTTP/export, and inert rendering. Three isolated Chromium flows cover active/queued recording, cross-view drafts, exact source/clipboard, original snapshot inspection, paused dispatch/explicit Resume, lost acknowledgements and safe replay, record-only without work, keyboard controls, narrow light/dark themes, archive reading, and a real service restart.
+Three new lint-gate integration tests cover real failing exits, safe quoted data, documented control-character rejection, unused-exception rejection, actual committed script options, new-source discovery, generated/local-data exclusions, and bounded subprocess cleanup. They invoke the pinned binary in temporary fixtures without app databases, provider requests, repository mutations, or executing the fixture source. Existing OpenAI/xAI/Gemini protocol assertions were strengthened with explicit header presence. Rendering's control-character filter and all existing security/source assertions remain unchanged.
 
-Exact-source CI `37102501007` completed successfully for commit `037de3aabce5ab906eef2e957ace9129b7ca9865`, tree `3faf856b1924ed459c4181182f1d30382f12f444`. Decoded logs independently confirm all six jobs passed 314 source tests, TypeScript/format checks, production builds, and zero-vulnerability production audit stages on Node 24.19.0/26.10.0 across Linux, Windows, and macOS. Both Ubuntu logs confirm all 67 Chromium flows passed. Job IDs: `111144637277` (Windows 26.10.0), `111144637349` (Ubuntu 26.10.0), `111144637406` (Ubuntu 24.19.0), `111144637410` (macOS 26.10.0), `111144637412` (Windows 24.19.0), `111144637442` (macOS 24.19.0). Older runs/discovery alone do not verify this source. The recovery-only follow-up triggers separate automatic main CI; do not infer its result from this run.
+Exact-source CI `37123845938` completed successfully for commit `c5ec43497107abb0648535c61da7c54f8452e2db`, tree `2777a812d8fffde1c0fe54c57aa317e61b0217d1`. Decoded logs independently confirm lint, 317 passing source tests, strict type/format checks, production builds, and zero-vulnerability production audit stages on all six Node 24.19.0/26.10.0 jobs across Linux, Windows, and macOS. This validates the native lint bindings on each CI platform/runtime. Both Ubuntu logs confirm all 67 Chromium tests passed: 384 distinct source/browser tests. Job IDs: `111205095686` (ubuntu-latest / Node 24.19.0); `111205095778` (macos-latest / Node 24.19.0); `111205095802` (windows-latest / Node 26.10.0); `111205095804` (macos-latest / Node 26.10.0); `111205095822` (ubuntu-latest / Node 26.10.0); `111205095864` (windows-latest / Node 24.19.0). Older runs/discovery alone do not verify this source. The recovery-only follow-up triggers separate automatic main CI; do not infer its result from this source run.
 
-Local Chromium remains unavailable: its previously inspected executable is truncated (30,354,432 bytes with missing ELF sections expected beyond 209 MB) and crashed with SIGSEGV even for `--version`. This iteration did not launch it, retry installation, or download replacements. Do not reuse that path or claim a local UI pass. No local Node 26 run is claimed; required browser/runtime verification uses exact GitHub CI source trees.
+Local Chromium remains unavailable: its previously inspected executable is truncated (30,354,432 bytes with missing ELF sections expected beyond 209 MB) and crashed with SIGSEGV even for `--version`. This iteration did not launch it, retry installation, or download replacements. Do not reuse that path or claim a local UI pass. No local Node 26 run is claimed; required browser/runtime verification uses exact GitHub CI trees.
 
-An initial new persistence test incorrectly expected restart to append no recovery events. It now verifies the exact original event prefix, only application recovery events afterward, exactly one human-interjection event, preserved source/snapshots, and replay without another mutation. The established recovery behavior was retained. Browser review uses the existing View source label, prepares multiple views before starting the slow provider fixture, and restores desktop layout before selecting the workspace after restart. No existing assertion or timeout was weakened. Existing instruction/provenance, queue/roster/removal/panel/footnote/highlighting/archive/deletion/bulk/send-selection regressions remain required.
+Execution stayed available; zero stalled-execution recovery attempts were needed. The starting checkout matched current main, so no restoration or file/blob repair was needed. Ordinary lint diagnostics, scoped configuration review, tests, and CI progress are not execution-stall recovery attempts. No unresolved execution/validation blocker remains. Preserve the limit of at most two short recovery attempts rather than polling an unavailable connection indefinitely.
 
-Execution stayed available; zero stalled-execution recovery attempts were needed. A queued-job metadata display briefly needed a null-step guard; the API/CI stayed available and no mutation was lost or repeated. Ordinary test diagnostics and CI progress are not execution-stall recovery attempts. The starting checkout matched current main, so no restoration or blob repair was needed. No unresolved execution/validation blocker remains. Preserve the limit of at most two short recovery attempts rather than polling an unavailable connection indefinitely.
+Previous v0.18.0 exact-source CI `37102501007` verified commit `037de3aabce5ab906eef2e957ace9129b7ca9865`, 314 source tests and 67 Chromium tests. Its recovery-only full-main CI `37102840044` was independently confirmed successful before v0.19.0. Earlier instruction/provenance and participant-removal timestamp guarantees, Ollama `/api/chat` plus `message.content` fixtures, deletion/dropdown/clipboard/layout fixes, and full workspace/thread/roster/queue/workflow regressions remain intact. Older runs do not verify v0.19.0.
 
-Previous v0.17.0 source CI `37100464173` verified commit `efb03a3be07622788615eb59cf59482315dfc48a`, 300 source tests and 64 Chromium tests. Its recovery-only full-main CI `37100958835` was independently confirmed successful before v0.18.0. Earlier Ollama chat-fixture corrections, participant removal timestamps, and deletion/dropdown/clipboard/layout fixes remain intact. Older runs do not verify v0.18.0.
+Keep the deletion browser regression's up-to-ten-second wait for exact authoritative synthesis completion before its enabled-reply assertion. Preserve completion assertions and All messages selection across separate threads, anchored labels with their displayed count, explicit Ollama stop completion, and held send/refresh selection guards. Do not weaken assertions or timeouts to pass new work. Lint exceptions cannot remove intentional URL/security checks.
 
-Keep the deletion browser regression's up-to-ten-second wait for exact authoritative stored synthesis completion before enabling reply. Preserve completion assertions and All messages selection across separate threads, anchored labels with their displayed count, exact Ollama `/api/chat` plus `message.content` fixtures and explicit stop completion, and held send/refresh selection guards. Do not weaken assertions or timeouts to pass new work.
+No credentialed provider account or installed model was invoked or verified. Tests use controlled/simulated protocols with blank cloud keys and isolated data. Real provider/model smoke tests stay separate and require explicit authorization. Keys remain service-only. No license has been selected; the package stays private without npm publication or a license grant.
 
-No credentialed provider account or installed model was invoked or verified. New tests use simulation or controlled adapters with blank cloud keys and isolated data. Real provider/model smoke tests stay separate and require explicit authorization. Keys remain service-only. No license has been selected; the package stays private without npm publication or a license grant.
-
-Signed-in ChatGPT/Grok/Gemini website transport remains unimplemented. APIs and simulation are implemented. Revised-task correction policies, explicit supersession/revised obligations, scope-specific human-input pauses, stale-result dependency exclusion, summaries/context budgets, restricted visibility, large-history and broader accessibility audits, math/diagrams, attachments, capability catalogs, packaging, and remaining README items stay open. Version 1 is prohibited until every original item is fully implemented and validated.
+Signed-in ChatGPT/Grok/Gemini website transport remains unimplemented. APIs and simulation are implemented. Secret scanning, broader security/accessibility/license/distribution reviews, revised-task correction policies, supersession/revised obligations, scope-specific human-input pauses, stale-result dependency exclusion, summaries/context budgets, restricted visibility, large-history work, math/diagrams, attachments, capability catalogs, packaging, and remaining README items stay open. Version 1 is prohibited until every original item is fully implemented and validated.
 
 ## What to do next
 
-Read the remaining README checklist and select one bounded unfinished feature or demonstrated bug after verifying current main. Immediate interjection recording, instruction provenance, versioned workspace instructions, scoped concurrency, participant removal, and bulk management are complete; do not reimplement them. A possible next bounded iteration is adding the missing lint step to the existing formatter/static-check/CI pipeline, completing that original compound checkbox only after the whole gate passes. Revised-task correction policies remain another option, but require explicit supersession, preserved original sources, revised obligation scope, and effects on queued/active work and every affected workflow before checking broad items. These are suggestions, not selected v0.19.0 scope or unfinished patches. The math/diagram compound item stays open until its entire rendering contract is implemented and validated. Credentialed provider/model checks remain separate and require explicit authorization.
+Read the remaining README checklist and select one bounded unfinished feature or demonstrated bug after verifying current main. The combined formatting/lint/static-check/CI gate, immediate interjection recording, instruction provenance/history, scoped concurrency, participant removal, and bulk management are complete; do not reimplement them. A possible next iteration is completing secret scanning alongside the already implemented vulnerability audits, with explicit scan scope, safe/redacted diagnostics, fixture detection, and CI failure behavior. Revised-task correction policies remain another option, requiring preserved original sources, explicit supersession, revised obligations, and effects on queued/active work and every affected workflow before checking broad items. These are suggestions, not selected v0.20.0 scope or unfinished patches. Math/diagram and other compound items stay open until their complete contract is implemented and validated. Credentialed provider/model checks remain separate and require explicit authorization.
 
 1. Read current main and check whether newer commits supersede this checkpoint. Read any applicable `AGENTS.md` discovered in the new checkout; none existed in this source/workspace hierarchy.
 2. Read the README's complete TODO checklist, CONTRIBUTING, and architecture decisions relevant to the intended change.
@@ -303,13 +317,15 @@ The complete implementation checklist belongs at the very end of README.md. Reta
 
 ## Checkout caveat
 
-This iteration reused `/workspace/scratch/066d1deae166/AIB_LLM_Built`. The clean starting local snapshot `98d2c8aa40f8afba0aefdda4d289be3d5c2cf338` matched current main `4253aea3c772c26fe24091e9064b1f8d02a11b55` at complete tree `b1400e4b994e55380dce3aebf63e08b208a945cb`. Current-main Recovery was read first and main's six-job CI independently verified. No restoration, user edits, or real data were discarded. No applicable AGENTS.md was found in the repository/workspace hierarchy.
+This iteration reused `/workspace/scratch/066d1deae166/AIB_LLM_Built`. The clean starting local snapshot `8d9a07e9100de6d55cd6c466d87dbb24f426497f` matched current main `651366b9eed0af12b716158e1cb0716f652d7846` at complete tree `dd2b28157e7a51dfa3ef10fde58b8650458261b2`. Current-main Recovery was read first and main's six-job CI independently verified. No restoration, user edits, or real data were discarded. No applicable AGENTS.md was found in the repository/workspace hierarchy.
 
-Local Git history is an independent snapshot, not a clone of remote history. Local application/test commit `8a4ff633926fbe7504ced646026643485f0d2d0f` and remote commit `037de3aabce5ab906eef2e957ace9129b7ca9865` share exact tree `3faf856b1924ed459c4181182f1d30382f12f444`. Publishing uses actual remote parents and fast-forward refs. Never force-push the snapshot, assume local hashes equal remote hashes, or use normal pull to reconcile it. Compare exact trees before reconciling metadata.
+Local Git history is an independent snapshot, not a clone of remote history. Local application/test commit `fce3683c92d6a64d6574dbe2ae57157e081676d9` and remote commit `c5ec43497107abb0648535c61da7c54f8452e2db` share exact tree `2777a812d8fffde1c0fe54c57aa317e61b0217d1`. Publishing uses actual remote parents and fast-forward refs. Never force-push the snapshot, assume local hashes equal remote hashes, or use normal pull to reconcile it. Compare exact trees before reconciling metadata.
 
 Application changes are committed and published to main with actual remote parents retained. This recovery-only follow-up is compared against the exact local documentation tree during publication. No uncommitted feature work or pending required application check is carried over. No real data, credentials, generated assets, or test output is committed. Required browser verification completed through CI; local Chromium remains unavailable.
 
 ## Useful paths and commands
+
+- `.oxlintrc.json`, package lint/check scripts, `tests/lint-gate.test.ts`, and `docs/architecture/0020-verification-pipeline.md`: pinned lint scope, fail-fast verification, isolated negative fixtures, deliberate security-filter exception, and platform compatibility.
 
 - `src/shared`: schemas/shared types, interjection/instruction/scoped concurrency/removal/bulk contracts, and retained history/identity/ordinal/eligibility helpers.
 - `src/client/InterjectionNotice.tsx`, `tests/interjections.test.ts`, `tests/ui/interjections.spec.ts`, and `docs/architecture/0019-human-interjections.md`: immediate durable human input, priority/dispatch metadata, replay/control boundaries, frozen workflows, and isolated coverage.
@@ -340,7 +356,7 @@ Application changes are committed and published to main with actual remote paren
 - `tests/bulk-workspaces.test.ts` and `tests/ui/bulk-workspaces.spec.ts`: scope, confirmation, cancellation, stale activity, rollback, streaming deletion, restart, keyboard/mobile, and ambiguous-response coverage.
 - `tests/ui/isolated-service.ts`: isolated production-service restart fixture.
 - `playwright.config.ts`: fresh per-run test data and optional `AIB_BROWSER_PATH`.
-- `docs/architecture/0001-language-and-runtime.md` through `0019-human-interjections.md`: architecture decisions.
+- `docs/architecture/0001-language-and-runtime.md` through `0020-verification-pipeline.md`: architecture decisions.
 - `.github/workflows/ci.yml`: six-job Node/platform matrix.
 
 Supported Node engine range is `>=24.15.0 <25 || >=26.10.0 <27`; `.nvmrc` selects 26.10.0. Use the lockfile. Do not silently upgrade dependencies or change the runtime range.
@@ -354,7 +370,7 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-`npm run check` includes TypeScript checks, unit/service/rendering tests, and formatting. Browser tests are required for client or service/client contract changes. Use `npm run dev` for development or `npm start` after building for the production service. Ensure tests retain blank cloud credentials and isolated data.
+`npm run check` includes lint, strict TypeScript checks, unit/service/rendering tests, and formatting. `npm run lint` runs just the non-mutating lint gate. Browser tests are required for client or service/client contract changes. Use `npm run dev` for development or `npm start` after building for the production service. Ensure tests retain blank cloud credentials and isolated data.
 
 ## Maintain this handoff
 
