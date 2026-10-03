@@ -4,6 +4,7 @@ Use Node.js 26.10 or later in the 26.x series, or Node.js 24.15 or later in the 
 
 ```sh
 npm run dev
+npm run lint
 npm run check
 npm run build
 npx playwright install chromium
@@ -16,7 +17,7 @@ Keep message schemas in `src/shared`, domain rules in `src/server/engine.ts`, pe
 
 When changing a workflow, explain the externally observable guarantee, its failure cases, and the evidence from tests. Add meaningful tests for races, persistence, and recovery rather than tests that merely repeat implementation details. Preserve original messages and completed response sets.
 
-Run formatting, type checks, unit/service tests, and a production build. Run browser tests when changing the client or service/client contract. The optional `AIB_BROWSER_PATH` environment variable selects an existing compatible Chromium executable for browser tests; normal developer setup uses Playwright's installed browser.
+Run `npm run check` (lint, strict type checks, unit/service tests, and formatting) and a production build. Run browser tests when changing the client or service/client contract. The optional `AIB_BROWSER_PATH` environment variable selects an existing compatible Chromium executable for browser tests; normal developer setup uses Playwright's installed browser.
 
 Mark a README task complete only when the entire listed item is implemented and validated. Partial implementations should be noted separately, leaving the original checkbox unchecked. Keep API credentials, local databases, test output, and generated build assets out of commits.
 
@@ -55,3 +56,5 @@ Read [ADR 0017](docs/architecture/0017-workspace-instructions.md) before changin
 Read [ADR 0018](docs/architecture/0018-instruction-provenance.md) before changing instruction staleness. Compare exact frozen workspace and author-role records, preserve proven supersession across restored text, and disclose missing or inconsistent provenance. Name/connection/activation/limit edits alone do not supersede instructions. Keep notices independent of outcomes, scheduling, response-set eligibility, stored bodies, provider prompts, and retry bindings; use the same read-only projection in the UI and export.
 
 Read [ADR 0019](docs/architecture/0019-human-interjections.md) before changing human interjections. Commit messages, recording-time work references, control events, and optional room pauses atomically. Preserve UUID replay without reapplying controls, original snapshots and obligations, non-scheduling priority labels, wall-clock deadlines, and immediate recording during generation. Keep task correction, revised instructions, and dependency supersession separate until their complete policies are implemented.
+
+Read [ADR 0020](docs/architecture/0020-verification-pipeline.md) before changing verification gates. `npm run lint` uses the pinned Oxlint binary and committed configuration over repository code; warnings and unused disable directives fail. Keep the gate in `npm run check` on every CI platform/runtime, preserve locked native bindings, and retain negative fixture coverage for failure and discovery. Review every exception narrowly; the intentional URL control-character rejection must stay exact. Prettier owns formatting, TypeScript owns type checking, and lint is not a secret scanner or a substitute for runtime/security tests.

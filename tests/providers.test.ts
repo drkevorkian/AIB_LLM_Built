@@ -77,10 +77,8 @@ test('SSE handles UTF-8, CRLF, comments, and multiline data with reader cleanup'
 test('OpenAI uses Responses streaming with frozen attributed input, no provider storage, and usage', async () => {
   const fetcher: typeof fetch = async (url, options) => {
     assert.equal(url, 'https://api.openai.com/v1/responses');
-    assert.equal(
-      (options?.headers as Record<string, string>).Authorization,
-      'Bearer secret-openai',
-    );
+    assert.ok(options?.headers, 'Adapter must supply authentication headers.');
+    assert.equal((options.headers as Record<string, string>).Authorization, 'Bearer secret-openai');
     assert.equal(options?.redirect, 'error');
     const payload = JSON.parse(options?.body as string);
     assert.equal(payload.store, false);
@@ -114,7 +112,8 @@ test('OpenAI uses Responses streaming with frozen attributed input, no provider 
 test('xAI chat chunks retain the response identity and read final usage before completing', async () => {
   const fetcher: typeof fetch = async (url, options) => {
     assert.equal(url, 'https://api.x.ai/v1/chat/completions');
-    assert.equal((options?.headers as Record<string, string>).Authorization, 'Bearer secret-xai');
+    assert.ok(options?.headers, 'Adapter must supply authentication headers.');
+    assert.equal((options.headers as Record<string, string>).Authorization, 'Bearer secret-xai');
     const body = JSON.parse(options?.body as string);
     assert.equal(body.stream_options.include_usage, true);
     return stream(
@@ -140,7 +139,8 @@ test('Gemini uses header authentication, separates instructions, excludes thinki
       'https://generativelanguage.googleapis.com/v1beta/models/test-model:streamGenerateContent?alt=sse',
     );
     assert.ok(!String(url).includes('secret'));
-    assert.equal((options?.headers as Record<string, string>)['x-goog-api-key'], 'secret-gemini');
+    assert.ok(options?.headers, 'Adapter must supply authentication headers.');
+    assert.equal((options.headers as Record<string, string>)['x-goog-api-key'], 'secret-gemini');
     const body = JSON.parse(options?.body as string);
     assert.equal(body.contents[0].role, 'user');
     assert.ok(body.systemInstruction.parts[0].text.includes('Architect'));

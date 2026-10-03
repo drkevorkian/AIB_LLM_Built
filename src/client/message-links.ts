@@ -1,5 +1,6 @@
 /** Conversation links must have an explicit web origin and cannot embed credentials. */
 export function safeMessageUrl(value: string): string | undefined {
+  // oxlint-disable-next-line eslint/no-control-regex -- Rejecting control characters is an intentional URL security boundary.
   if (!/^https?:\/\//i.test(value) || /[\u0000-\u0020\u007f\\]/.test(value)) return;
   try {
     const url = new URL(value);
