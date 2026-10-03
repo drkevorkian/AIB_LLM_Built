@@ -20,6 +20,12 @@ import { SettingsPage } from './SettingsPage.js';
 import { searchWorkspaces, searchThreads, type WorkspaceView } from './search.js';
 import { CopyButton } from './CopyButton.js';
 import { MessageText } from './MessageText.js';
+import { InstructionNotice } from './InstructionNotice.js';
+import {
+  invocationInstructionProvenance,
+  messageInstructionProvenance,
+  instructionProvenanceLabel,
+} from '../shared/instruction-provenance.js';
 import { ParticipantQueue, useRoomActivity } from './ParticipantQueue.js';
 import { usePanelLayout } from './PanelLayout.js';
 import { applicationVersion } from '../shared/version.js';
@@ -1068,6 +1074,7 @@ export function App() {
         >
           <p className="muted">Message ID: {inspect.id}</p>
           <p>Visible to the room · reply to {inspect.replyTo ?? 'none'}</p>
+          <InstructionNotice provenance={messageInstructionProvenance(room, inspect)} showCurrent />
           {room.jobs
             .filter((j) => j.messageId === inspect.id)
             .map((j) => (
@@ -1126,6 +1133,7 @@ function MessageCard({
   const prior = room.messages.find((p) => p.id === m.replyTo);
   const attempt = room.jobs.find((j) => j.messageId === m.id);
   const response = room.requests.find((r) => r.id === attempt?.requestId);
+  const instructionProvenance = messageInstructionProvenance(room, m);
   return (
     <article
       className={`message ${agent?.color ?? 'human'} ${m.type}`}
@@ -1163,6 +1171,7 @@ function MessageCard({
               <span> · arrived after the set closed</span>
             )}
         </div>
+        <InstructionNotice provenance={instructionProvenance} />
         <MessageText
           text={m.body}
           source={source}
@@ -1370,6 +1379,13 @@ function AgentCard({
   const participant = activity?.participants.find((entry) => entry.agentId === agent.id);
   const request = room.requests.find((r) => r.id === latest?.requestId);
   const discussion = room.discussions.find((d) => d.id === latest?.discussionId);
+  const retryInstructions = latest
+    ? invocationInstructionProvenance(
+        room,
+        room.snapshots.find((s) => s.id === latest.snapshotId),
+        agent.id,
+      )
+    : null;
   const retryable =
     latest &&
     ![latest.snapshotId, request?.snapshotId].some(
@@ -1418,6 +1434,16 @@ function AgentCard({
       {latest?.error && (
         <div className="job-error">
           {latest.error}
+          {retryable && retryInstructions && retryInstructions.state !== 'current' && (
+            <p
+              className="retry-instruction-notice"
+              role="note"
+              aria-label="Retry instruction context"
+            >
+              {instructionProvenanceLabel(retryInstructions)}. Retry keeps these recorded
+              instructions. Ask a new question to use current settings.
+            </p>
+          )}
           {retryable && (
             <button
               onClick={() => {

@@ -565,6 +565,7 @@ p {
 .badge.idle,
 .badge.ready,
 .badge.frozen,
+.badge.instruction-current,
 .badge.complete {
   color: var(--teal);
   background: var(--teal-dim);
@@ -578,6 +579,8 @@ p {
 }
 .badge.paused,
 .badge.interrupted,
+.badge.instruction-stale,
+.badge.instruction-unknown,
 .badge.timed_out {
   color: var(--amber);
   background: var(--amber-dim);
@@ -1996,6 +1999,29 @@ progress::-moz-progress-bar {
 .instruction-history {
   margin-top: 16px;
   min-width: 0;
+}
+.instruction-provenance {
+  margin: 10px 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.instruction-provenance p {
+  margin: 0;
+}
+.instruction-provenance p + p {
+  margin-top: 6px;
+}
+.instruction-provenance .badge {
+  display: inline-block;
+  white-space: normal;
+}
+.retry-instruction-notice {
+  font-size: 11px;
+  line-height: 1.65;
 }
 .instruction-history > summary {
   cursor: pointer;

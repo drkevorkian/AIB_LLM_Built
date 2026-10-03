@@ -16,6 +16,11 @@ import {
 import type { ConversationEngine } from './engine.js';
 import { AppError } from './errors.js';
 import { applicationVersion } from '../shared/version.js';
+import {
+  messageInstructionProvenance,
+  instructionProvenanceLabel,
+  instructionProvenanceDetails,
+} from '../shared/instruction-provenance.js';
 
 export interface HttpOptions {
   port: number;
@@ -348,8 +353,13 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
           const instructions = snapshot
             ? `\n\nWorkspace instructions: ${snapshot.instructionRevision === undefined ? 'legacy revision unknown' : `revision ${snapshot.instructionRevision}`}.`
             : '';
-          const redaction =
+          const provenance = messageInstructionProvenance(room, message);
+          const instructionStatus = provenance
+            ? `\n\nInstruction provenance: ${instructionProvenanceLabel(provenance)}. ${instructionProvenanceDetails(provenance).join(' ')} Original outcome: ${message.status}.`
+            : '';
+          const contextNotes =
             instructions +
+            instructionStatus +
             (snapshot?.deletedMessageIds?.length
               ? `\n\nContext: ${snapshot.deletedMessageIds.length} source messages removed by thread deletion; historical context is redacted.`
               : '');
@@ -364,7 +374,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
           const action = attempt?.agentAction;
           const thread = room.threads.find((t) => t.id === message.threadId);
           parts.push(
-            `\n## ${name} · ${message.type} · ${message.status}\n\nMessage: ${message.id} · Thread: ${message.threadId}${thread ? `\n\nThread name: ${thread.title}` : ''}\n\nTo: ${recipients}\n\nReply to: ${message.replyTo ?? 'none'}${redaction}${attempt ? `\n\nAttempt: ${attempt.id} · ${attempt.kind}${attempt.previousJobId ? ` · follows ${attempt.previousJobId}` : ''}${attempt.error ? `\n\nAttempt error: ${attempt.error}` : ''}` : ''}${action ? `\n\nAction: ${action.kind} · Policy: ${action.policy} · Quorum: ${action.quorum}` : ''}${binding ? `\n\nProvider: ${binding.provider} · Model: ${binding.model}` : ''}${attempt?.providerRequestId ? `\n\nProvider request: ${attempt.providerRequestId}` : ''}${attempt?.usage ? `\n\nToken usage: ${JSON.stringify(attempt.usage)}` : ''}\n\n${message.body}\n`,
+            `\n## ${name} · ${message.type} · ${message.status}\n\nMessage: ${message.id} · Thread: ${message.threadId}${thread ? `\n\nThread name: ${thread.title}` : ''}\n\nTo: ${recipients}\n\nReply to: ${message.replyTo ?? 'none'}${contextNotes}${attempt ? `\n\nAttempt: ${attempt.id} · ${attempt.kind}${attempt.previousJobId ? ` · follows ${attempt.previousJobId}` : ''}${attempt.error ? `\n\nAttempt error: ${attempt.error}` : ''}` : ''}${action ? `\n\nAction: ${action.kind} · Policy: ${action.policy} · Quorum: ${action.quorum}` : ''}${binding ? `\n\nProvider: ${binding.provider} · Model: ${binding.model}` : ''}${attempt?.providerRequestId ? `\n\nProvider request: ${attempt.providerRequestId}` : ''}${attempt?.usage ? `\n\nToken usage: ${JSON.stringify(attempt.usage)}` : ''}\n\n${message.body}\n`,
           );
         }
         res.end(parts.join(''));
