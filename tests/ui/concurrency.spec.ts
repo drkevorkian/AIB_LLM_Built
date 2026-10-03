@@ -82,13 +82,18 @@ async function heldProvider(page: Page, f: Awaited<ReturnType<typeof fixture>>) 
   const responses: ServerResponse[] = [];
   const server = createServer((req, res) => {
     req.resume();
-    if (req.url !== '/api/generate' || req.method !== 'POST') {
+    if (req.url !== '/api/chat' || req.method !== 'POST') {
       res.writeHead(404).end();
       return;
     }
     responses.push(res);
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
-    res.write(JSON.stringify({ response: 'Held synthetic answer.', done: false }) + '\n');
+    res.write(
+      JSON.stringify({
+        message: { role: 'assistant', content: 'Held synthetic answer.' },
+        done: false,
+      }) + '\n',
+    );
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   const address = server.address();
@@ -115,7 +120,8 @@ async function heldProvider(page: Page, f: Awaited<ReturnType<typeof fixture>>) 
   }
   return {
     responses,
-    finish: (index: number) => responses[index]!.end(JSON.stringify({ done: true }) + '\n'),
+    finish: (index: number) =>
+      responses[index]!.end(JSON.stringify({ done: true, done_reason: 'stop' }) + '\n'),
     close: async () => {
       server.closeAllConnections();
       await new Promise<void>((done) => server.close(() => done()));
