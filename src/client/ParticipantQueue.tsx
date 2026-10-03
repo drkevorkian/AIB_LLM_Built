@@ -203,6 +203,12 @@ export function ParticipantQueue({
                         ? ' Review the failed or interrupted attempts before explicitly retrying.'
                         : ''}
                     </small>
+                    {wait.waitingSince && (
+                      <small>
+                        Deadline passed; explicit wait retains the original obligations without
+                        automatic retry.
+                      </small>
+                    )}
                     {wait.deadlineAt && (
                       <small>
                         Response deadline {time(wait.deadlineAt)}; deadlines continue while paused.

@@ -1,5 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Agent, ContextSnapshot, ProviderStatus, TokenUsage } from '../shared/contracts.js';
+import type {
+  Agent,
+  ContextSnapshot,
+  ProviderStatus,
+  TokenUsage,
+  CollectionContext,
+} from '../shared/contracts.js';
 
 export interface ProviderInput {
   agent: Agent;
@@ -9,6 +15,7 @@ export interface ProviderInput {
   includedAnswers: { author: string; body: string }[];
   expectedRespondents: string[];
   missingRespondents: string[];
+  collection?: CollectionContext;
   relay?: { step: number; total: number };
   discussion?: {
     id: string;

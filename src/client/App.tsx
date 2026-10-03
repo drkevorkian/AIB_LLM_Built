@@ -3,7 +3,6 @@ import type {
   Agent,
   ContextSnapshot,
   Message,
-  Request,
   Room,
   RoomSummary,
   BulkWorkspacePreview,
@@ -21,6 +20,7 @@ import { searchWorkspaces, searchThreads, type WorkspaceView } from './search.js
 import { CopyButton } from './CopyButton.js';
 import { MessageText } from './MessageText.js';
 import { InstructionNotice } from './InstructionNotice.js';
+import { ResponseSet, FrozenCollection } from './ResponseCollection.js';
 import { InterjectionNotice } from './InterjectionNotice.js';
 import {
   invocationInstructionProvenance,
@@ -38,6 +38,7 @@ import {
   maxParticipants,
   hasPendingWork,
   maxBulkWorkspaces,
+  collectionPending,
 } from '../shared/contracts.js';
 
 type DeleteTarget =
@@ -345,7 +346,9 @@ export function App() {
     room?.agents.filter((a) => isAgentActive(a) && a.provider !== 'simulated').length ?? 0;
   const reservedTurns = room
     ? room.jobs.filter((j) => j.status === 'queued' && !j.discussionId).length +
-      room.requests.filter((r) => r.status === 'collecting' && r.synthesisAgentId).length +
+      room.requests.filter(
+        (r) => (r.status === 'collecting' || collectionPending(r)) && r.synthesisAgentId,
+      ).length +
       room.relays
         .filter((r) => ['running', 'blocked'].includes(r.status))
         .reduce((n, r) => n + r.order.length - r.requestIds.length, 0) +
@@ -799,11 +802,13 @@ export function App() {
                     }}
                     onInspect={() => setInspect(m)}
                   />
-                  {m.type === 'question' &&
+                  {(m.type === 'question' || (m.authorId === 'human' && m.type === 'update')) &&
+                    m.requestId &&
                     room.requests.find((r) => r.id === m.requestId && r.phase !== 'decision') && (
                       <ResponseSet
                         request={room.requests.find((r) => r.id === m.requestId)!}
                         room={room}
+                        onChanged={() => setTick((value) => value + 1)}
                       />
                     )}
                   {room.relays
@@ -1166,7 +1171,8 @@ function MessageCard({
             : 'room observers'}
           <span> · room-visible</span>
           {prior && <span> · replying to #{prior.sequence}</span>}
-          {response?.phase === 'consultation' &&
+          {m.type === 'answer' &&
+            response &&
             response.status === 'ready' &&
             m.status === 'complete' &&
             !response.includedMessageIds.includes(m.id) && (
@@ -1296,59 +1302,6 @@ function DiscussionCard({
         >
           {stopping ? 'Stopping…' : 'Stop discussion'}
         </button>
-      )}
-    </div>
-  );
-}
-
-function ResponseSet({ request, room }: { request: Request; room: Room }) {
-  const completed = request.recipientIds.filter((id) =>
-    room.jobs.some(
-      (j) =>
-        j.requestId === request.id &&
-        j.agentId === id &&
-        j.kind === 'answer' &&
-        j.status === 'completed',
-    ),
-  ).length;
-  return (
-    <div className="response-set">
-      <div>
-        <span className="collection-label">RESPONSE SET</span>
-        <strong>
-          {completed} / {request.recipientIds.length} received
-        </strong>
-        <Badge value={request.status} />
-      </div>
-      <p>
-        {request.policy === 'all'
-          ? 'Wait for every selected agent'
-          : request.policy === 'any'
-            ? 'Use the first complete answer; remaining agents continue'
-            : `Wait for ${request.quorum} complete answers`}
-        {request.synthesisAgentId
-          ? ` · then ${nameOf(room, request.synthesisAgentId, request.snapshotId)} synthesizes`
-          : request.phase === 'consultation'
-            ? ` · then ${nameOf(room, room.discussions.find((d) => d.id === request.discussionId)!.leaderId, request.snapshotId)} continues`
-            : ' · preserve individual answers'}
-      </p>
-      <div className="respondents">
-        {request.recipientIds.map((id) => {
-          const job = room.jobs
-            .filter((j) => j.requestId === request.id && j.agentId === id && j.kind === 'answer')
-            .at(-1);
-          return (
-            <span key={id} className={job?.status === 'completed' ? 'received' : ''}>
-              {nameOf(room, id, request.snapshotId)}
-              <small>{job?.status}</small>
-            </span>
-          );
-        })}
-      </div>
-      {request.status === 'collecting' && (
-        <small className="muted">
-          Deadline {time(request.deadlineAt)}. Timeout pauses this room.
-        </small>
       )}
     </div>
   );
@@ -1512,6 +1465,9 @@ function Composer({
   );
   const [policy, setPolicy] = useState<SendInput['policy']>(defaults.defaultPolicy);
   const [quorum, setQuorum] = useState(1);
+  const [minimumAnswers, setMinimumAnswers] = useState(1);
+  const [onTimeout, setOnTimeout] = useState<'pause' | 'wait' | 'incomplete'>('pause');
+  const [remainingWork, setRemainingWork] = useState<'continue' | 'cancel'>('continue');
   const [synthesis, setSynthesis] = useState(defaults.defaultSynthesis);
   const [synthesizerId, setSynthesizerId] = useState(
     activeAgents.length > 1 ? activeAgents[0]!.id : '',
@@ -1531,6 +1487,9 @@ function Composer({
     setRelayOrder((prior) => prior.filter((id) => ids.has(id)));
     setLeaderId((prior) => (ids.has(prior) ? prior : (activeAgents[0]?.id ?? '')));
     setSynthesizerId((prior) => (ids.has(prior) ? prior : ''));
+    setMinimumAnswers((prior) =>
+      Math.min(prior, Math.max(1, recipients.filter((id) => ids.has(id)).length)),
+    );
     setQuorum((prior) =>
       Math.min(prior, Math.max(1, recipients.filter((id) => ids.has(id)).length)),
     );
@@ -1581,8 +1540,18 @@ function Composer({
               ? relayOrder.slice(0, 1)
               : recipients,
         policy:
-          type === 'relay' || type === 'discussion' || type === 'interjection' ? 'all' : policy,
-        quorum: type === 'interjection' ? 1 : quorum,
+          type === 'relay' || type === 'discussion' || type === 'interjection'
+            ? 'all'
+            : type === 'update'
+              ? 'no_reply'
+              : policy,
+        quorum: type === 'question' ? quorum : 1,
+        minimumAnswers:
+          type === 'question' && (policy === 'deadline' || onTimeout === 'incomplete')
+            ? minimumAnswers
+            : 1,
+        onTimeout: type === 'question' ? onTimeout : 'pause',
+        remainingWork: type === 'question' ? remainingWork : 'continue',
         synthesisAgentId: type === 'question' && synthesis && synthesizer ? synthesizer.id : null,
         threadId,
         replyTo: reply?.id ?? null,
@@ -1873,6 +1842,7 @@ function Composer({
                   <option value="all">Wait for all</option>
                   <option value="any">First answer</option>
                   <option value="quorum">Quorum</option>
+                  <option value="deadline">Collect until deadline</option>
                 </select>
                 {policy === 'quorum' && (
                   <input
@@ -1888,6 +1858,59 @@ function Composer({
                     }}
                   />
                 )}
+                <label className="collection-option">
+                  At timeout
+                  <select
+                    aria-label="Timeout outcome"
+                    value={onTimeout}
+                    onChange={(event) => {
+                      setOnTimeout(event.target.value as typeof onTimeout);
+                      clientId.current = null;
+                    }}
+                  >
+                    <option value="pause">Cancel unfinished work and pause</option>
+                    <option value="wait">Keep waiting; no automatic retry</option>
+                    <option value="incomplete">Use an explicitly incomplete set</option>
+                  </select>
+                </label>
+                {(policy === 'deadline' || onTimeout === 'incomplete') && (
+                  <label className="collection-option">
+                    Minimum answers
+                    <input
+                      className="quorum"
+                      aria-label="Minimum completed answers"
+                      type="number"
+                      required
+                      min={1}
+                      max={
+                        policy === 'any'
+                          ? 1
+                          : policy === 'quorum'
+                            ? Math.min(quorum, Math.max(1, recipients.length))
+                            : Math.max(1, recipients.length)
+                      }
+                      value={minimumAnswers}
+                      onChange={(event) => {
+                        setMinimumAnswers(Number(event.target.value));
+                        clientId.current = null;
+                      }}
+                    />
+                  </label>
+                )}
+                <label className="collection-option">
+                  After closure
+                  <select
+                    aria-label="Remaining recipient work"
+                    value={remainingWork}
+                    onChange={(event) => {
+                      setRemainingWork(event.target.value as typeof remainingWork);
+                      clientId.current = null;
+                    }}
+                  >
+                    <option value="continue">Continue remaining recipients</option>
+                    <option value="cancel">Cancel remaining recipients</option>
+                  </select>
+                </label>
                 <label className="synthesis-option">
                   <input
                     type="checkbox"
@@ -1928,6 +1951,14 @@ function Composer({
             <Glyph kind="send" size={15} />
           </button>
         </div>
+        {type === 'question' && (
+          <p className="muted collection-explanation">
+            Independent answers stay separate. Deadline collection waits for its full window.
+            Incomplete timeout cancels unfinished recipients and labels missing answers; it never
+            invents agreement. Keep waiting preserves obligations after the deadline without replay.
+            Active provider requests retain their own timeout. Paused work stays paused.
+          </p>
+        )}
         <div className="composer-footnote">
           <span>
             {threadId ? 'This thread' : 'Starts a new thread'} ·{' '}
@@ -2636,6 +2667,9 @@ function Snapshot({ snapshot, room }: { snapshot: ContextSnapshot; room: Room })
         <p className="muted">
           Legacy snapshot: workspace instruction text and revision were not recorded.
         </p>
+      )}
+      {snapshot.collection && (
+        <FrozenCollection collection={snapshot.collection} room={room} snapshotId={snapshot.id} />
       )}
       <details>
         <summary>Participant roles at invocation</summary>

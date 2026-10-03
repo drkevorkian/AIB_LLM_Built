@@ -1060,6 +1060,8 @@ p {
   }
 }
 .response-set {
+  min-width: 0;
+  overflow-wrap: anywhere;
   border: 1px solid var(--line);
   background: var(--panel);
   border-radius: 4px;
@@ -1183,6 +1185,7 @@ p {
   border-radius: 0 0 4px 4px;
 }
 .composer-options {
+  min-width: 0;
   display: flex;
   gap: 7px;
   align-items: center;
@@ -2244,4 +2247,20 @@ progress::-moz-progress-bar {
     min-height: 36px;
     min-width: 30px;
   }
+}
+
+.collection-option {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+}
+.collection-option select {
+  max-width: 100%;
+}
+.collection-explanation {
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }

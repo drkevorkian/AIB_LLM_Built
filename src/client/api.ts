@@ -17,6 +17,7 @@ import type {
   BulkWorkspacePreview,
   BulkWorkspaceResult,
   ProviderConcurrency,
+  UpdatedSynthesisInput,
 } from '../shared/contracts.js';
 
 let tokenPromise: Promise<string> | null = null;
@@ -174,6 +175,14 @@ export const api = {
   control: async (id: string, action: 'pause' | 'resume' | 'stop') => {
     await request(`/rooms/${id}/control`, { method: 'POST', body: JSON.stringify({ action }) });
   },
+  updatedSynthesis: async (id: string, input: UpdatedSynthesisInput) =>
+    (
+      await request(`/rooms/${id}/updated-synthesis`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(15000),
+      })
+    ).json() as Promise<SendResult>,
   retry: async (id: string, jobId: string) => {
     await request(`/rooms/${id}/retry`, { method: 'POST', body: JSON.stringify({ jobId }) });
   },

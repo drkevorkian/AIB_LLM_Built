@@ -152,8 +152,11 @@ export const sendSchema = z.strictObject({
   body: z.string().trim().min(1).max(12000),
   type: z.enum(['question', 'update', 'interjection']),
   recipientIds: z.array(idSchema).max(8),
-  policy: z.enum(['all', 'any', 'quorum']).default('all'),
+  policy: z.enum(['all', 'any', 'quorum', 'deadline', 'no_reply']).default('all'),
   quorum: z.number().int().min(1).max(8).default(1),
+  minimumAnswers: z.number().int().min(1).max(8).default(1),
+  onTimeout: z.enum(['pause', 'wait', 'incomplete']).default('pause'),
+  remainingWork: z.enum(['continue', 'cancel']).default('continue'),
   synthesisAgentId: idSchema.nullable().default(null),
   threadId: idSchema.nullable().default(null),
   replyTo: idSchema.nullable().default(null),
@@ -186,6 +189,12 @@ export type AgentAction = z.infer<typeof agentActionSchema>;
 export const stopDiscussionSchema = z.strictObject({ discussionId: idSchema });
 export const controlSchema = z.strictObject({ action: z.enum(['pause', 'resume', 'stop']) });
 export const retrySchema = z.strictObject({ jobId: idSchema });
+export const updatedSynthesisSchema = z.strictObject({
+  clientId: z.string().uuid(),
+  requestId: idSchema,
+  expectedRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+});
+export type UpdatedSynthesisInput = z.infer<typeof updatedSynthesisSchema>;
 export type CreateRoomInput = z.input<typeof createRoomSchema>;
 export type SendInput = z.input<typeof sendSchema>;
 export type AgentSettingsInput = z.input<typeof agentSettingsSchema>;
@@ -278,14 +287,34 @@ export interface ContextSnapshot {
   createdAt: string;
   /** Human deletion redacts source copies; these snapshots cannot be reused for retries. */
   deletedMessageIds?: string[];
+  /** Application-owned facts frozen with a synthesis; late results cannot rewrite them. */
+  collection?: CollectionContext;
+}
+export interface CollectionContext {
+  requestId: string;
+  policy: Request['policy'];
+  reason: 'threshold' | 'deadline' | 'incomplete_timeout' | 'updated_synthesis';
+  incomplete: boolean;
+  expectedRecipientIds: string[];
+  includedMessageIds: string[];
+  missingRespondents: { agentId: string; status: JobStatus | 'missing' }[];
+  /** Preserve source differences; the application does not claim semantic agreement detection. */
+  disagreementPolicy: 'preserve_and_identify';
 }
 export interface Request {
   id: string;
   messageId: string;
   threadId: string;
   recipientIds: string[];
-  policy: 'all' | 'any' | 'quorum';
+  policy: 'all' | 'any' | 'quorum' | 'deadline';
   quorum: number;
+  /** Additive fields: absent legacy values retain pause/continue/minimum-one behavior. */
+  minimumAnswers?: number;
+  onTimeout?: 'pause' | 'wait' | 'incomplete';
+  remainingWork?: 'continue' | 'cancel';
+  waitingSince?: string;
+  collection?: CollectionContext;
+  synthesisRevisionOf?: string;
   synthesisAgentId: string | null;
   snapshotId: string;
   status: RequestStatus;
@@ -468,6 +497,7 @@ export interface ResponsePrerequisite {
   received: number;
   required: number;
   deadlineAt: string | null;
+  waitingSince?: string;
   respondents: { agentId: string; name: string; status: JobStatus | 'missing' }[];
 }
 export interface ParticipantActivity {
@@ -500,12 +530,38 @@ export function agentAtSnapshot(
   );
 }
 
-export function hasPendingWork(room: Pick<Room, 'jobs' | 'relays' | 'discussions'>): boolean {
+export function hasPendingWork(
+  room: Pick<Room, 'jobs' | 'relays' | 'discussions'> & { requests?: Request[] },
+): boolean {
   return (
     room.jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
     room.relays.some((r) => r.status === 'running' || r.status === 'blocked') ||
-    room.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status))
+    room.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status)) ||
+    (room.requests ?? []).some(collectionPending)
   );
+}
+
+/** Pending timed collection can outlive its jobs; it must retain settings/archive guards. */
+export function collectionPending(request: Request): boolean {
+  return (
+    (request.status === 'collecting' || request.status === 'unresolved') &&
+    (request.policy === 'deadline' ||
+      request.onTimeout === 'incomplete' ||
+      request.onTimeout === 'wait' ||
+      !!request.waitingSince)
+  );
+}
+export function collectionTarget(request: Request): number {
+  return request.policy === 'all'
+    ? request.recipientIds.length
+    : request.policy === 'any'
+      ? 1
+      : request.policy === 'deadline'
+        ? (request.minimumAnswers ?? 1)
+        : request.quorum;
+}
+export function collectionDeadlineActive(request: Request): boolean {
+  return !request.waitingSince && (request.status === 'collecting' || collectionPending(request));
 }
 
 /** Stable roster positions distinguish duplicate display names without changing identity. */

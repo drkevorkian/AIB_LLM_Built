@@ -290,6 +290,10 @@ test('adding interjection fields preserves existing send hashes and legacy repla
   delete (previousCanonical as Partial<typeof canonical>).relayOrder;
   delete (previousCanonical as Partial<typeof canonical>).discussion;
   delete (previousCanonical as Partial<typeof canonical>).interjection;
+  // Reconstruct the pre-extension command, excluding additive legacy-default collection fields.
+  delete (previousCanonical as Partial<typeof canonical>).minimumAnswers;
+  delete (previousCanonical as Partial<typeof canonical>).onTimeout;
+  delete (previousCanonical as Partial<typeof canonical>).remainingWork;
   const hash = createHash('sha256').update(JSON.stringify(previousCanonical)).digest('hex');
   const sent = f.engine.send(f.room.id, input);
   assert.equal(f.store.get(f.room.id).messages[0]!.commandHash, hash);

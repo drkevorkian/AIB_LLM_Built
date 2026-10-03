@@ -11,6 +11,8 @@ import {
   type ProviderKind,
   type ProviderConcurrency,
   maxConcurrentRequests,
+  collectionDeadlineActive,
+  collectionTarget,
 } from '../shared/contracts.js';
 
 interface RuntimeActivity {
@@ -53,7 +55,7 @@ export function inspectActivity(room: Room, runtime: RuntimeActivity): RoomActiv
       model: binding?.model ?? null,
       createdAt: job.createdAt,
       startedAt: job.startedAt,
-      deadlineAt: request.status === 'collecting' ? request.deadlineAt : null,
+      deadlineAt: collectionDeadlineActive(request) ? request.deadlineAt : null,
     };
   }
   function prerequisite(
@@ -78,13 +80,9 @@ export function inspectActivity(room: Room, runtime: RuntimeActivity): RoomActiv
       status: request.status as ResponsePrerequisite['status'],
       policy: request.policy,
       received: respondents.filter((respondent) => respondent.status === 'completed').length,
-      required:
-        request.policy === 'all'
-          ? respondents.length
-          : request.policy === 'any'
-            ? 1
-            : request.quorum,
-      deadlineAt: request.status === 'collecting' ? request.deadlineAt : null,
+      required: collectionTarget(request),
+      deadlineAt: collectionDeadlineActive(request) ? request.deadlineAt : null,
+      ...(request.waitingSince ? { waitingSince: request.waitingSince } : {}),
       respondents,
     };
   }
@@ -161,7 +159,7 @@ export function inspectActivity(room: Room, runtime: RuntimeActivity): RoomActiv
               blockers.push('provider_capacity');
             if (room.turnsUsed >= room.maxTurns) blockers.push('turn_limit');
             if (
-              request.status === 'collecting' &&
+              collectionDeadlineActive(request) &&
               Date.parse(request.deadlineAt) <= runtime.now.getTime()
             )
               blockers.push('deadline_elapsed');

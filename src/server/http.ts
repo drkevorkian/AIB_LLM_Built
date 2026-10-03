@@ -256,7 +256,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         throw new AppError(405, 'Method not supported.');
       }
       const match =
-        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|export|agents|connection-test|discussion-stop|settings|archive|activity))?$/.exec(
+        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|updated-synthesis|export|agents|connection-test|discussion-stop|settings|archive|activity))?$/.exec(
           url.pathname,
         );
       if (!match) throw new AppError(404, 'Endpoint not found.');
@@ -320,6 +320,17 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         json(res, 200, { ok: true });
         return;
       }
+      if (match[2] === 'updated-synthesis' && req.method === 'POST') {
+        json(
+          res,
+          201,
+          engine.updatedSynthesis(
+            roomId,
+            (await body(req)) as Parameters<typeof engine.updatedSynthesis>[1],
+          ),
+        );
+        return;
+      }
       if (match[2] === 'discussion-stop' && req.method === 'POST') {
         engine.stopDiscussion(roomId, stopDiscussionSchema.parse(await body(req)).discussionId);
         json(res, 200, { ok: true });
@@ -365,6 +376,9 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
             instructions +
             instructionStatus +
             interjection +
+            (snapshot?.collection
+              ? `\n\nFrozen collection: ${JSON.stringify(snapshot.collection)}. Disagreement policy: preserve and identify conflicting claims; no semantic agreement is inferred.`
+              : '') +
             (snapshot?.deletedMessageIds?.length
               ? `\n\nContext: ${snapshot.deletedMessageIds.length} source messages removed by thread deletion; historical context is redacted.`
               : '');

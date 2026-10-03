@@ -29,6 +29,7 @@ import type {
   BulkWorkspaceResult,
   ProviderKind,
   ProviderConcurrency,
+  UpdatedSynthesisInput,
 } from '../shared/contracts.js';
 import {
   agentActionSchema,
@@ -52,6 +53,10 @@ import {
   maxConcurrentRequests,
   providerConcurrencySchema,
   workspaceInstructionHistory,
+  updatedSynthesisSchema,
+  collectionTarget,
+  collectionPending,
+  collectionDeadlineActive,
 } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
@@ -235,12 +240,7 @@ export class ConversationEngine extends EventEmitter {
     const input = workspaceSettingsSchema.parse(raw);
     this.store.mutate(roomId, (room) => {
       this.assertWorkspaceOpen(room);
-      if (
-        room.jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
-        room.relays.some((r) => ['running', 'blocked'].includes(r.status)) ||
-        room.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status)) ||
-        room.agents.some((a) => this.connectionChecks.has(a.id))
-      )
+      if (hasPendingWork(room) || room.agents.some((a) => this.connectionChecks.has(a.id)))
         throw new AppError(409, 'Finish or stop pending work before editing workspace settings.');
       const revision = room.instructionRevision ?? 0;
       if (
@@ -848,6 +848,11 @@ export class ConversationEngine extends EventEmitter {
     if (!input.relayOrder.length) delete (canonical as Partial<typeof input>).relayOrder;
     if (!input.discussion) delete (canonical as Partial<typeof input>).discussion;
     if (!input.interjection) delete (canonical as Partial<typeof input>).interjection;
+    // Keep previous UUID hashes valid when new optional controls use their legacy defaults.
+    if (input.minimumAnswers === 1) delete (canonical as Partial<typeof input>).minimumAnswers;
+    if (input.onTimeout === 'pause') delete (canonical as Partial<typeof input>).onTimeout;
+    if (input.remainingWork === 'continue')
+      delete (canonical as Partial<typeof input>).remainingWork;
     const commandHash = createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
     const current = this.store.get(roomId);
     this.assertWorkspaceOpen(current);
@@ -884,6 +889,28 @@ export class ConversationEngine extends EventEmitter {
         throw new AppError(400, 'Unknown or inactive synthesis agent.');
       if (input.type === 'question' && !input.recipientIds.length)
         throw new AppError(400, 'A question needs at least one recipient.');
+      if (input.policy === 'no_reply' && input.type !== 'update')
+        throw new AppError(400, 'No-reply policy requires an Update without response obligations.');
+      const customCollection =
+        input.minimumAnswers !== 1 ||
+        input.onTimeout !== 'pause' ||
+        input.remainingWork !== 'continue' ||
+        input.policy === 'deadline';
+      if (
+        customCollection &&
+        (input.type !== 'question' || input.relayOrder.length || input.discussion)
+      )
+        throw new AppError(
+          400,
+          'Collection controls apply to ordinary questions, not updates, interjections, relays, or discussions.',
+        );
+      if (input.type === 'question' && input.minimumAnswers > input.recipientIds.length)
+        throw new AppError(400, 'Minimum answers exceeds the recipient count.');
+      if (
+        (input.policy === 'any' && input.minimumAnswers !== 1) ||
+        (input.policy === 'quorum' && input.minimumAnswers > input.quorum)
+      )
+        throw new AppError(400, 'The timeout minimum cannot exceed the collection threshold.');
       if (input.type === 'interjection') {
         if (!input.interjection || !input.recipientIds.length)
           throw new AppError(
@@ -1006,8 +1033,15 @@ export class ConversationEngine extends EventEmitter {
           messageId: message.id,
           threadId,
           recipientIds: input.recipientIds,
-          policy: input.policy,
+          policy: input.policy as Request['policy'],
           quorum: input.quorum,
+          ...(!input.relayOrder.length && !input.discussion
+            ? {
+                minimumAnswers: input.minimumAnswers,
+                onTimeout: input.onTimeout,
+                remainingWork: input.remainingWork,
+              }
+            : {}),
           synthesisAgentId: input.synthesisAgentId,
           snapshotId: snapshot.id,
           status: 'collecting',
@@ -1101,7 +1135,7 @@ export class ConversationEngine extends EventEmitter {
         for (const relay of room.relays)
           if (relay.status === 'running' || relay.status === 'blocked') relay.status = 'cancelled';
         for (const request of room.requests) {
-          if (request.status === 'collecting') {
+          if (request.status === 'collecting' || collectionPending(request)) {
             request.status = 'cancelled';
             request.closedAt = this.timestamp();
           }
@@ -1213,6 +1247,7 @@ export class ConversationEngine extends EventEmitter {
           room.messages.find((m) => m.id === id)!,
         );
         const snapshot = this.snapshot(room, [...original.messages, ...included], binding);
+        if (binding.collection) snapshot.collection = structuredClone(binding.collection);
         room.snapshots.push(snapshot);
         room.jobs.push({
           ...this.job(request, previous.agentId, previous.kind, snapshot.id),
@@ -1227,6 +1262,7 @@ export class ConversationEngine extends EventEmitter {
       if (previous.kind !== 'synthesis') {
         request.status = 'collecting';
         request.closedAt = null;
+        delete request.waitingSince;
         request.deadlineAt = new Date(
           this.now().getTime() + (discussion?.deadlineSeconds ?? 120) * 1000,
         ).toISOString();
@@ -1243,6 +1279,165 @@ export class ConversationEngine extends EventEmitter {
       this.audit(room, 'job.retry', `Explicit retry of ${previous.id}; previous attempt retained.`);
     });
     this.changed(roomId);
+  }
+
+  updatedSynthesis(roomId: string, raw: UpdatedSynthesisInput): SendResult {
+    const input = updatedSynthesisSchema.parse(raw);
+    const commandHash = createHash('sha256')
+      .update(JSON.stringify({ updatedSynthesis: input }))
+      .digest('hex');
+    const current = this.store.get(roomId);
+    this.assertWorkspaceOpen(current);
+    if (this.closed) throw new AppError(409, 'The service is shutting down.');
+    if (current.deletedClientIds?.includes(input.clientId))
+      throw new AppError(409, 'This command was deleted. Start a new review.');
+    const previous = current.messages.find((message) => message.clientId === input.clientId);
+    if (previous) {
+      if (previous.commandHash !== commandHash)
+        throw new AppError(409, 'Send ID already used for different content.');
+      return { messageId: previous.id, threadId: previous.threadId, requestId: previous.requestId };
+    }
+    const result = this.store.mutate(roomId, (room) => {
+      if (room.revision !== input.expectedRevision)
+        throw new AppError(
+          409,
+          'The response set changed. Review it again before requesting an updated synthesis.',
+        );
+      if (room.status === 'stopped')
+        throw new AppError(409, 'Resume this room before requesting an updated synthesis.');
+      const prior = room.requests.find((request) => request.id === input.requestId);
+      if (
+        !prior ||
+        prior.status !== 'ready' ||
+        prior.relayId ||
+        prior.discussionId ||
+        !prior.synthesisAgentId
+      )
+        throw new AppError(
+          400,
+          'Choose a closed ordinary response set with a completed synthesis.',
+        );
+      const synthesis = room.jobs
+        .filter((job) => job.requestId === prior.id && job.kind === 'synthesis')
+        .at(-1);
+      if (synthesis?.status !== 'completed')
+        throw new AppError(
+          409,
+          'Wait for this synthesis to complete. Failed attempts use explicit Retry.',
+        );
+      const source = prior.synthesisRevisionOf
+        ? room.requests.find((request) => request.id === prior.sourceRequestId)
+        : prior;
+      const original = room.snapshots.find((snapshot) => snapshot.id === source?.snapshotId);
+      if (
+        !source ||
+        !original ||
+        original.deletedMessageIds?.length ||
+        room.snapshots.find((snapshot) => snapshot.id === synthesis.snapshotId)?.deletedMessageIds
+          ?.length
+      )
+        throw new AppError(409, 'This response set used deleted context. Ask a new question.');
+      if (
+        !room.agents.some((agent) => agent.id === prior.synthesisAgentId && isAgentActive(agent)) ||
+        !original.agents.some((agent) => agent.id === prior.synthesisAgentId)
+      )
+        throw new AppError(
+          409,
+          'The original synthesizer is unavailable. Ask a new question with current participants.',
+        );
+      const completed = this.latestAnswers(room, source).filter(
+        (job) => job?.status === 'completed',
+      ) as Job[];
+      if (!completed.some((job) => !prior.includedMessageIds.includes(job.messageId!)))
+        throw new AppError(
+          409,
+          'No new eligible late answer is available. The original synthesis remains unchanged.',
+        );
+      const revisions = room.requests.filter(
+        (request) => request.synthesisRevisionOf && request.sourceRequestId === source.id,
+      );
+      if (
+        revisions.some(
+          (request) =>
+            request.includedMessageIds.length === completed.length &&
+            completed.every((job) => request.includedMessageIds.includes(job.messageId!)),
+        )
+      )
+        throw new AppError(
+          409,
+          'An updated synthesis already includes these answers. Inspect it, or explicitly retry its failed attempt.',
+        );
+      if (
+        room.jobs.some(
+          (job) =>
+            revisions.some((request) => request.id === job.requestId) &&
+            job.kind === 'synthesis' &&
+            (job.status === 'queued' || job.status === 'running'),
+        )
+      )
+        throw new AppError(
+          409,
+          'Wait for the existing updated synthesis to finish before reviewing another set.',
+        );
+      this.reserve(room, 1);
+      const request: Request = {
+        ...source,
+        id: this.id(),
+        messageId: this.id(),
+        status: 'ready',
+        synthesisAgentId: prior.synthesisAgentId,
+        includedMessageIds: completed.map((job) => job.messageId!),
+        createdAt: this.timestamp(),
+        closedAt: this.timestamp(),
+        sourceRequestId: source.id,
+        synthesisRevisionOf: prior.id,
+      };
+      delete request.waitingSince;
+      request.collection = this.collectionContext(
+        room,
+        request,
+        completed,
+        'updated_synthesis',
+        source,
+      );
+      const snapshot = this.snapshot(
+        room,
+        [
+          ...original.messages,
+          ...completed.map((job) => room.messages.find((message) => message.id === job.messageId)!),
+        ],
+        original,
+      );
+      snapshot.collection = structuredClone(request.collection);
+      room.snapshots.push(snapshot);
+      room.messages.push({
+        id: request.messageId,
+        sequence: this.nextSequence(room),
+        threadId: source.threadId,
+        authorId: 'human',
+        recipientIds: [prior.synthesisAgentId],
+        visibility: 'room',
+        type: 'update',
+        body: `Requested a separate updated synthesis of response set ${prior.id}, including ${completed.length} completed answers. Original instructions and source answers are retained.`,
+        status: 'complete',
+        replyTo: synthesis.messageId,
+        requestId: request.id,
+        snapshotId: original.id,
+        createdAt: this.timestamp(),
+        clientId: input.clientId,
+        commandHash,
+      });
+      room.requests.push(request);
+      room.jobs.push(this.job(request, prior.synthesisAgentId, 'synthesis', snapshot.id));
+      this.audit(
+        room,
+        'synthesis.updated',
+        `Response set ${request.id} follows ${prior.id}; original set and synthesis preserved.`,
+      );
+      return { messageId: request.messageId, threadId: request.threadId, requestId: request.id };
+    });
+    this.changed(roomId);
+    return result;
   }
 
   /** Dispatch is synchronous up to persisted claims; generation proceeds independently. */
@@ -1322,9 +1517,11 @@ export class ConversationEngine extends EventEmitter {
       const prompt = room.messages.find(
         (m) =>
           m.id ===
-          (discussion && job.kind === 'decision'
-            ? discussion.messageId
-            : (relay?.messageId ?? request.messageId)),
+          (request.synthesisRevisionOf
+            ? room.requests.find((source) => source.id === request.sourceRequestId)!.messageId
+            : discussion && job.kind === 'decision'
+              ? discussion.messageId
+              : (relay?.messageId ?? request.messageId)),
       )!.body;
       job.status = 'running';
       job.startedAt = this.timestamp();
@@ -1384,6 +1581,7 @@ export class ConversationEngine extends EventEmitter {
         includedAnswers,
         expectedRespondents,
         missingRespondents,
+        ...(snapshot.collection ? { collection: structuredClone(snapshot.collection) } : {}),
         ...(relay ? { relay: { step: request.relayStep!, total: relay.order.length } } : {}),
         ...(discussion && job.kind === 'decision'
           ? {
@@ -1424,6 +1622,9 @@ export class ConversationEngine extends EventEmitter {
     let actionCount = 0;
     try {
       for await (const event of this.provider.generate(input, signal)) {
+        if (this.closed || signal.aborted) break;
+        // A provider event racing the scheduler must not sneak into an expired closed set.
+        this.expire(roomId);
         if (this.closed || signal.aborted) break;
         if (event.type === 'refused') throw new ProviderRefusal(event.reason);
         if (event.type === 'action') {
@@ -1503,65 +1704,117 @@ export class ConversationEngine extends EventEmitter {
     }
   }
 
-  private collect(room: Room, requestId: string): void {
-    const request = room.requests.find((r) => r.id === requestId)!;
-    if (request.status !== 'collecting') return;
+  private latestAnswers(room: Room, request: Request): (Job | undefined)[] {
     const kind = request.phase === 'decision' ? 'decision' : 'answer';
-    const latest = request.recipientIds.map((id) =>
-      room.jobs
-        .filter((j) => j.requestId === requestId && j.agentId === id && j.kind === kind)
-        .at(-1)!,
+    return request.recipientIds.map((id) =>
+      room.jobs.findLast(
+        (job) => job.requestId === request.id && job.agentId === id && job.kind === kind,
+      ),
     );
-    const completed = latest.filter((j) => j.status === 'completed');
-    const target =
-      request.policy === 'all' ? latest.length : request.policy === 'any' ? 1 : request.quorum;
-    if (completed.length >= target) {
-      request.status = 'ready';
-      request.closedAt = this.timestamp();
-      request.includedMessageIds = completed.map((j) => j.messageId!);
-      if (request.relayId) this.advanceRelay(room, request);
-      if (request.discussionId && request.phase === 'consultation')
-        this.advanceDiscussion(room, request);
-      if (request.synthesisAgentId) {
-        const original = room.snapshots.find((s) => s.id === request.snapshotId)!;
-        const included = request.includedMessageIds.map((id) =>
-          room.messages.find((m) => m.id === id)!,
-        );
-        try {
-          const snapshot = this.snapshot(room, [...original.messages, ...included], original);
-          room.snapshots.push(snapshot);
-          room.jobs.push(this.job(request, request.synthesisAgentId, 'synthesis', snapshot.id));
-        } catch (error) {
-          if (!(error instanceof AppError) || error.status !== 413) throw error;
-          const failed = this.job(request, request.synthesisAgentId, 'synthesis', original.id);
-          failed.status = 'failed';
-          failed.error =
-            'Synthesis context exceeds the initial 64,000-character limit. Individual answers are preserved.';
-          failed.endedAt = this.timestamp();
-          room.jobs.push(failed);
-          this.audit(room, 'synthesis.blocked', failed.error);
-        }
-      }
-      this.audit(
-        room,
-        'request.ready',
-        `Collected ${completed.length}/${latest.length} answers under ${request.policy}.`,
+  }
+
+  private collectionContext(
+    room: Room,
+    request: Request,
+    completed: Job[],
+    reason: NonNullable<Request['collection']>['reason'],
+    source = request,
+  ): NonNullable<Request['collection']> {
+    const includedAuthors = new Set(completed.map((job) => job.agentId));
+    const latest = this.latestAnswers(room, source);
+    return {
+      requestId: request.id,
+      policy: request.policy,
+      reason,
+      incomplete: completed.length < source.recipientIds.length,
+      expectedRecipientIds: [...source.recipientIds],
+      includedMessageIds: completed.map((job) => job.messageId!),
+      missingRespondents: source.recipientIds
+        .filter((id) => !includedAuthors.has(id))
+        .map((agentId) => ({
+          agentId,
+          status: latest.find((job) => job?.agentId === agentId)?.status ?? 'missing',
+        })),
+      disagreementPolicy: 'preserve_and_identify',
+    };
+  }
+
+  private closeCollection(
+    room: Room,
+    request: Request,
+    completed: Job[],
+    reason: NonNullable<Request['collection']>['reason'],
+  ): void {
+    request.status = 'ready';
+    request.closedAt = this.timestamp();
+    request.includedMessageIds = completed.map((job) => job.messageId!);
+    if (request.remainingWork === 'cancel' || reason === 'incomplete_timeout') {
+      for (const job of room.jobs)
+        if (job.requestId === request.id && job.kind === 'answer') this.cancelJob(room, job);
+    }
+    request.collection = this.collectionContext(room, request, completed, reason);
+    if (request.relayId) this.advanceRelay(room, request);
+    if (request.discussionId && request.phase === 'consultation')
+      this.advanceDiscussion(room, request);
+    if (request.synthesisAgentId) {
+      const original = room.snapshots.find((snapshot) => snapshot.id === request.snapshotId)!;
+      const included = completed.map((job) =>
+        room.messages.find((message) => message.id === job.messageId)!,
       );
-    } else if (latest.every((j) => terminal.has(j.status))) {
+      try {
+        const snapshot = this.snapshot(room, [...original.messages, ...included], original);
+        snapshot.collection = structuredClone(request.collection);
+        room.snapshots.push(snapshot);
+        room.jobs.push(this.job(request, request.synthesisAgentId, 'synthesis', snapshot.id));
+      } catch (error) {
+        if (!(error instanceof AppError) || error.status !== 413) throw error;
+        const failed = this.job(request, request.synthesisAgentId, 'synthesis', original.id);
+        failed.status = 'failed';
+        failed.error =
+          'Synthesis context exceeds the initial 64,000-character limit. Individual answers are preserved.';
+        failed.endedAt = this.timestamp();
+        room.jobs.push(failed);
+        this.audit(room, 'synthesis.blocked', failed.error);
+      }
+    }
+    this.audit(
+      room,
+      'request.ready',
+      `Collected ${completed.length}/${request.recipientIds.length} answers under ${request.policy}; reason ${reason}.`,
+    );
+  }
+
+  private collect(room: Room, requestId: string): void {
+    const request = room.requests.find((request) => request.id === requestId)!;
+    if (request.status !== 'collecting') return;
+    const latest = this.latestAnswers(room, request);
+    const completed = latest.filter((job) => job?.status === 'completed') as Job[];
+    const threshold = completed.length >= collectionTarget(request);
+    if (threshold && (request.policy !== 'deadline' || request.waitingSince)) {
+      this.closeCollection(
+        room,
+        request,
+        completed,
+        request.policy === 'deadline' ? 'deadline' : 'threshold',
+      );
+    } else if (
+      request.policy !== 'deadline' &&
+      latest.every((job) => job && terminal.has(job.status))
+    ) {
       request.status = 'unresolved';
       request.closedAt = this.timestamp();
       const relay = room.relays.find((r) => r.id === request.relayId);
       if (relay) {
         relay.status = 'blocked';
         relay.error =
-          latest.find((j) => j.error)?.error ??
+          latest.find((j) => j?.error)?.error ??
           'Relay requires a completed answer before advancing.';
       }
       const discussion = room.discussions.find((d) => d.id === request.discussionId);
       if (discussion && discussion.status !== 'cancelled' && discussion.status !== 'completed') {
         discussion.status = 'blocked';
         discussion.error =
-          latest.find((j) => j.error)?.error ?? 'Required completed answers were not received.';
+          latest.find((j) => j?.error)?.error ?? 'Required completed answers were not received.';
       }
       this.audit(room, 'request.unresolved', 'Required eligible answers were not received.');
     }
@@ -1895,46 +2148,67 @@ export class ConversationEngine extends EventEmitter {
     const expired = this.store
       .get(roomId)
       .requests.filter(
-        (r) => r.status === 'collecting' && Date.parse(r.deadlineAt) <= this.now().getTime(),
+        (request) =>
+          collectionDeadlineActive(request) &&
+          Date.parse(request.deadlineAt) <= this.now().getTime(),
       );
     if (!expired.length) return;
-    const ids = new Set(expired.map((r) => r.id));
-    const cancelled: string[] = [];
+    const ids = new Set(expired.map((request) => request.id));
     this.store.mutate(roomId, (room) => {
-      room.status = 'paused';
       for (const request of room.requests) {
         if (!ids.has(request.id)) continue;
+        const completed = this.latestAnswers(room, request).filter(
+          (job) => job?.status === 'completed',
+        ) as Job[];
+        if (!request.relayId && !request.discussionId) {
+          if (request.policy === 'deadline' && completed.length >= (request.minimumAnswers ?? 1)) {
+            this.closeCollection(room, request, completed, 'deadline');
+            continue;
+          }
+          if (request.onTimeout === 'wait') {
+            request.waitingSince = this.timestamp();
+            this.audit(
+              room,
+              'request.waiting',
+              `Request ${request.id} reached its deadline; explicit wait retains original obligations without retry or dispatch authority.`,
+            );
+            continue;
+          }
+          if (
+            request.onTimeout === 'incomplete' &&
+            completed.length >= (request.minimumAnswers ?? 1)
+          ) {
+            this.closeCollection(room, request, completed, 'incomplete_timeout');
+            continue;
+          }
+        }
+        room.status = 'paused';
         request.status = 'timed_out';
         request.closedAt = this.timestamp();
-        const relay = room.relays.find((r) => r.id === request.relayId);
+        request.includedMessageIds = completed.map((job) => job.messageId!);
+        const relay = room.relays.find((relay) => relay.id === request.relayId);
         if (relay) {
           relay.status = 'cancelled';
           relay.error = 'Relay cancelled after its response deadline.';
         }
-        const discussion = room.discussions.find((d) => d.id === request.discussionId);
+        const discussion = room.discussions.find(
+          (discussion) => discussion.id === request.discussionId,
+        );
         if (discussion)
           this.cancelDiscussion(
             room,
             discussion,
             'Discussion cancelled after its response deadline.',
           );
-        request.includedMessageIds = room.jobs
-          .filter(
-            (j) => j.requestId === request.id && j.kind === 'answer' && j.status === 'completed',
-          )
-          .map((j) => j.messageId!);
+        for (const job of room.jobs) if (job.requestId === request.id) this.cancelJob(room, job);
+        this.audit(
+          room,
+          'request.timeout',
+          `Request ${request.id} reached its deadline without its required minimum; incomplete results preserved and room paused.`,
+        );
       }
-      for (const job of room.jobs) {
-        if (ids.has(job.requestId)) this.cancelJob(room, job);
-        if (job.status === 'cancelled') cancelled.push(job.id);
-      }
-      this.audit(
-        room,
-        'request.timeout',
-        'Deadline reached; incomplete response set preserved and room paused.',
-      );
     });
-    for (const id of cancelled) this.active.get(id)?.abort.abort();
+    this.abortCancelled(roomId);
     this.changed(roomId);
   }
 
@@ -1943,6 +2217,7 @@ export class ConversationEngine extends EventEmitter {
       if (
         !(initial.archivedAt && initial.status !== 'paused') &&
         !initial.jobs.some((j) => j.status === 'running' || j.status === 'queued') &&
+        !initial.requests.some(collectionPending) &&
         !initial.relays.some((r) => r.status === 'running' || r.status === 'blocked') &&
         !initial.discussions.some((d) => ['running', 'waiting', 'blocked'].includes(d.status))
       )
@@ -1978,7 +2253,9 @@ export class ConversationEngine extends EventEmitter {
   private reserve(room: Room, needed: number): void {
     const reserved =
       room.jobs.filter((j) => j.status === 'queued' && !j.discussionId).length +
-      room.requests.filter((r) => r.status === 'collecting' && r.synthesisAgentId).length +
+      room.requests.filter(
+        (r) => (r.status === 'collecting' || collectionPending(r)) && r.synthesisAgentId,
+      ).length +
       room.relays
         .filter((r) => r.status === 'running' || r.status === 'blocked')
         .reduce((n, r) => n + r.order.length - r.requestIds.length, 0) +
