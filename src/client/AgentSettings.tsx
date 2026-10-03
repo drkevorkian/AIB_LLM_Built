@@ -230,17 +230,18 @@ export function AgentSettings({
               : 'This uses the provider API. Browser account sessions and website subscriptions are separate.'}
         </p>
         <p className="muted">
-          Live turns send the shared objective, participant roles, frozen thread context, and your
-          current request to the selected provider. Test connection sends only a short greeting
-          request and the participant roles. It may incur provider charges and does not consume a
-          room turn.
+          Live turns send workspace instructions, the shared objective, participant roles, frozen
+          thread context, and your current request to the selected provider. Test connection sends
+          only a short greeting request and the participant roles. It may incur provider charges and
+          does not consume a room turn.
         </p>
         <p className="muted">
           Test coordinator checks the structured finish decision needed for Agent discussion. It
-          sends a test request and participant roles, with no thread history or shared objective.
-          Each test makes one request, may incur provider charges, and is limited to 30 seconds or
-          the saved timeout if shorter. Simulation checks only the local fixture. Results apply to
-          the tested configuration at that time; they do not guarantee later discussions.
+          sends a test request and participant roles, with no thread history, shared objective, or
+          workspace instructions. Each test makes one request, may incur provider charges, and is
+          limited to 30 seconds or the saved timeout if shorter. Simulation checks only the local
+          fixture. Results apply to the tested configuration at that time; they do not guarantee
+          later discussions.
         </p>
         {error && (
           <p className="form-error" role="alert">

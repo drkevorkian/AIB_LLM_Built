@@ -51,6 +51,7 @@ import {
   bulkWorkspaceTokenSchema,
   maxConcurrentRequests,
   providerConcurrencySchema,
+  workspaceInstructionHistory,
 } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
@@ -127,6 +128,17 @@ export class ConversationEngine extends EventEmitter {
       id: this.id(),
       title: input.title,
       objective: input.objective,
+      humanInstructions: input.humanInstructions,
+      instructionRevision: 0,
+      instructionRevisions: [
+        {
+          revision: 0,
+          objective: input.objective,
+          humanInstructions: input.humanInstructions,
+          recordedAt: createdAt,
+          source: 'created',
+        },
+      ],
       status: 'running',
       archivedAt: null,
       revision: 0,
@@ -230,17 +242,51 @@ export class ConversationEngine extends EventEmitter {
         room.agents.some((a) => this.connectionChecks.has(a.id))
       )
         throw new AppError(409, 'Finish or stop pending work before editing workspace settings.');
+      const revision = room.instructionRevision ?? 0;
+      if (
+        input.expectedInstructionRevision !== undefined &&
+        input.expectedInstructionRevision !== revision
+      )
+        throw new AppError(
+          409,
+          'Workspace instructions changed. Reopen Settings and review the current revision before saving.',
+        );
+      const humanInstructions = Object.hasOwn(raw, 'humanInstructions')
+        ? input.humanInstructions
+        : (room.humanInstructions ?? '');
+      const instructionChanged =
+        input.objective !== room.objective || humanInstructions !== (room.humanInstructions ?? '');
+      if (instructionChanged && revision >= Number.MAX_SAFE_INTEGER)
+        throw new AppError(409, 'Workspace instruction revision limit reached.');
       room.maxTurns = input.maxTurns;
       room.maxConcurrentRequests = Object.hasOwn(raw, 'maxConcurrentRequests')
         ? input.maxConcurrentRequests
         : (room.maxConcurrentRequests ?? maxConcurrentRequests);
       this.reserve(room, 0);
+      room.instructionRevisions = structuredClone(workspaceInstructionHistory(room));
+      room.humanInstructions = humanInstructions;
+      room.instructionRevision = revision;
+      if (instructionChanged) {
+        room.instructionRevision++;
+        room.instructionRevisions.push({
+          revision: room.instructionRevision,
+          objective: input.objective,
+          humanInstructions,
+          recordedAt: this.timestamp(),
+          source: 'edited',
+        });
+        this.audit(
+          room,
+          'room.instructions',
+          `Workspace instructions revision ${room.instructionRevision} recorded. Existing invocation context is unchanged.`,
+        );
+      }
       room.title = input.title;
       room.objective = input.objective;
       this.audit(
         room,
         'room.configured',
-        'Workspace name, objective, turn limit, and request limit updated. Previous invocation snapshots retain their settings.',
+        'Workspace name, objective, instructions, and limits updated. Previous invocation snapshots retain their settings.',
       );
     });
     this.changed(roomId);
@@ -643,7 +689,7 @@ export class ConversationEngine extends EventEmitter {
       agent.active = false;
       agent.removedAt = this.timestamp();
       agent.configRevision = (agent.configRevision ?? 0) + 1;
-      this.recordAgent(room, agent);
+      this.recordAgent(room, agent, agent.removedAt);
       this.audit(
         room,
         'agent.removed',
@@ -663,10 +709,10 @@ export class ConversationEngine extends EventEmitter {
       );
   }
 
-  private recordAgent(room: Room, agent: Agent): void {
+  private recordAgent(room: Room, agent: Agent, recordedAt = this.timestamp()): void {
     (room.agentRevisions ??= []).push({
       agent: structuredClone(agent),
-      recordedAt: this.timestamp(),
+      recordedAt,
     });
   }
 
@@ -694,7 +740,10 @@ export class ConversationEngine extends EventEmitter {
     const hold = this.scopedCapacityHold(room, agent.provider);
     if (hold) throw new AppError(409, hold);
     const abort = new AbortController();
-    const snapshot = this.snapshot({ ...room, objective: '' }, []);
+    const snapshot = this.snapshot(room, [], {
+      objective: '',
+      agents: room.agents.filter((agent) => !isAgentRemoved(agent)),
+    });
     const signal = AbortSignal.any([
       abort.signal,
       AbortSignal.timeout(Math.min(agent.timeoutSeconds ?? 180, 30) * 1000),
@@ -1125,10 +1174,7 @@ export class ConversationEngine extends EventEmitter {
         const included = request.includedMessageIds.map((id) =>
           room.messages.find((m) => m.id === id)!,
         );
-        const snapshot = this.snapshot(
-          { ...room, agents: binding.agents, objective: binding.objective },
-          [...original.messages, ...included],
-        );
+        const snapshot = this.snapshot(room, [...original.messages, ...included], binding);
         room.snapshots.push(snapshot);
         room.jobs.push({
           ...this.job(request, previous.agentId, previous.kind, snapshot.id),
@@ -1444,10 +1490,7 @@ export class ConversationEngine extends EventEmitter {
           room.messages.find((m) => m.id === id)!,
         );
         try {
-          const snapshot = this.snapshot(
-            { ...room, agents: original.agents, objective: original.objective },
-            [...original.messages, ...included],
-          );
+          const snapshot = this.snapshot(room, [...original.messages, ...included], original);
           room.snapshots.push(snapshot);
           room.jobs.push(this.job(request, request.synthesisAgentId, 'synthesis', snapshot.id));
         } catch (error) {
@@ -1589,7 +1632,7 @@ export class ConversationEngine extends EventEmitter {
     const original = room.snapshots.find((s) => s.id === job.snapshotId)!;
     let snapshot: ContextSnapshot;
     try {
-      snapshot = this.snapshot(room, [...original.messages, message]);
+      snapshot = this.snapshot(room, [...original.messages, message], original);
     } catch (error) {
       if (!(error instanceof AppError) || error.status !== 413) throw error;
       discussion.status = 'blocked';
@@ -1598,7 +1641,6 @@ export class ConversationEngine extends EventEmitter {
       this.audit(room, 'discussion.blocked', discussion.error);
       return;
     }
-    snapshot.agents = structuredClone(original.agents);
     room.snapshots.push(snapshot);
     const round = this.discussionRequest(
       discussion,
@@ -1636,8 +1678,7 @@ export class ConversationEngine extends EventEmitter {
       const included = round.includedMessageIds.map((id) =>
         room.messages.find((m) => m.id === id)!,
       );
-      const snapshot = this.snapshot(room, [...original.messages, ...included]);
-      snapshot.agents = structuredClone(original.agents);
+      const snapshot = this.snapshot(room, [...original.messages, ...included], original);
       room.snapshots.push(snapshot);
       const next = this.discussionRequest(
         discussion,
@@ -1779,8 +1820,7 @@ export class ConversationEngine extends EventEmitter {
     const original = room.snapshots.find((s) => s.id === request.snapshotId)!;
     const nextAgent = relay.order[relay.completedSteps]!;
     try {
-      const snapshot = this.snapshot(room, [...original.messages, source]);
-      snapshot.agents = structuredClone(original.agents);
+      const snapshot = this.snapshot(room, [...original.messages, source], original);
       room.snapshots.push(snapshot);
       const next: Request = {
         ...request,
@@ -1914,8 +1954,26 @@ export class ConversationEngine extends EventEmitter {
       );
   }
 
-  private snapshot(room: Room, messages: ContextSnapshot['messages']): ContextSnapshot {
-    if (messages.reduce((n, m) => n + m.body.length, room.objective.length) > 64000)
+  private snapshot(
+    room: Room,
+    messages: ContextSnapshot['messages'],
+    original?: Pick<
+      ContextSnapshot,
+      'objective' | 'agents' | 'humanInstructions' | 'instructionRevision'
+    >,
+  ): ContextSnapshot {
+    const binding = original ?? {
+      objective: room.objective,
+      humanInstructions: room.humanInstructions ?? '',
+      instructionRevision: room.instructionRevision ?? 0,
+      agents: room.agents.filter((agent) => !isAgentRemoved(agent)),
+    };
+    if (
+      messages.reduce(
+        (n, m) => n + m.body.length,
+        binding.objective.length + (binding.humanInstructions?.length ?? 0),
+      ) > 64000
+    )
       throw new AppError(
         413,
         'This thread exceeds the initial context limit. Start a new thread or room; no history was silently removed.',
@@ -1923,8 +1981,14 @@ export class ConversationEngine extends EventEmitter {
     return {
       id: this.id(),
       sequence: room.messageSequence ?? room.messages.reduce((n, m) => Math.max(n, m.sequence), 0),
-      objective: room.objective,
-      agents: structuredClone(room.agents.filter((a) => !isAgentRemoved(a))),
+      objective: binding.objective,
+      ...(binding.humanInstructions !== undefined
+        ? { humanInstructions: binding.humanInstructions }
+        : {}),
+      ...(binding.instructionRevision !== undefined
+        ? { instructionRevision: binding.instructionRevision }
+        : {}),
+      agents: structuredClone(binding.agents),
       messages: messages.map(({ id, authorId, type, body, authorName }) => {
         const source = room.messages.find((m) => m.id === id);
         return {

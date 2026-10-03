@@ -616,7 +616,7 @@ export function App() {
             <span className="eyebrow">YOUR MACHINE · YOUR WORKSPACE</span>
             <p>
               {liveCount
-                ? 'Live providers receive the objective, participant roles, and frozen conversation context for their turns.'
+                ? 'Live providers receive workspace instructions, the objective, participant roles, and frozen conversation context for their turns.'
                 : 'Participants use simulation until you configure a live provider.'}
             </p>
             <span className="muted">Work continues while the service runs.</span>
@@ -2418,6 +2418,7 @@ function NewRoom({
 }) {
   const [title, setTitle] = useState('');
   const [objective, setObjective] = useState('');
+  const [humanInstructions, setHumanInstructions] = useState('');
   const [maxTurns, setMaxTurns] = useState(defaults.defaultMaxTurns);
   const [participantCount, setParticipantCount] = useState(3);
   const [error, setError] = useState('');
@@ -2426,7 +2427,9 @@ function NewRoom({
     e.preventDefault();
     setBusy(true);
     try {
-      onCreated(await api.create({ title, objective, maxTurns, participantCount }));
+      onCreated(
+        await api.create({ title, objective, humanInstructions, maxTurns, participantCount }),
+      );
     } catch (ex) {
       setError(errorText(ex));
       setBusy(false);
@@ -2459,6 +2462,17 @@ function NewRoom({
             maxLength={3000}
             onChange={(e) => setObjective(e.target.value)}
             placeholder="Give the agents a clear objective."
+          />
+        </label>
+        <label>
+          Workspace instructions
+          <textarea
+            aria-label="Workspace instructions"
+            value={humanInstructions}
+            rows={3}
+            maxLength={3000}
+            onChange={(e) => setHumanInstructions(e.target.value)}
+            placeholder="Shared human instructions for requests in this workspace."
           />
         </label>
         <label>
@@ -2519,6 +2533,23 @@ function Snapshot({ snapshot, room }: { snapshot: ContextSnapshot; room: Room })
       <p>
         <strong>Objective:</strong> {snapshot.objective}
       </p>
+      {snapshot.humanInstructions !== undefined ? (
+        <>
+          <p>
+            <strong>Workspace instructions:</strong>{' '}
+            {snapshot.instructionRevision === undefined
+              ? 'Revision unknown'
+              : `Revision ${snapshot.instructionRevision}`}
+          </p>
+          <pre className="instruction-text" tabIndex={0} aria-label="Frozen workspace instructions">
+            {snapshot.humanInstructions || 'No additional instructions.'}
+          </pre>
+        </>
+      ) : (
+        <p className="muted">
+          Legacy snapshot: workspace instruction text and revision were not recorded.
+        </p>
+      )}
       <details>
         <summary>Participant roles at invocation</summary>
         {snapshot.agents.map((a) => (

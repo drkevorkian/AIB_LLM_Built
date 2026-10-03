@@ -8,6 +8,7 @@ import {
   type WorkspaceSettingsInput,
   type ProviderConcurrency,
   maxConcurrentRequests,
+  workspaceInstructionHistory,
 } from '../shared/contracts.js';
 import { api } from './api.js';
 import { Participants } from './Participants.js';
@@ -395,6 +396,8 @@ function WorkspaceForm({ room, onSaved }: { room: Room; onSaved: (room: Room) =>
   const [value, setValue] = useState<WorkspaceSettingsInput>({
     title: room.title,
     objective: room.objective,
+    humanInstructions: room.humanInstructions ?? '',
+    expectedInstructionRevision: room.instructionRevision ?? 0,
     maxTurns: room.maxTurns,
     maxConcurrentRequests: room.maxConcurrentRequests ?? maxConcurrentRequests,
   });
@@ -408,10 +411,20 @@ function WorkspaceForm({ room, onSaved }: { room: Room; onSaved: (room: Room) =>
       setValue({
         title: room.title,
         objective: room.objective,
+        humanInstructions: room.humanInstructions ?? '',
+        expectedInstructionRevision: room.instructionRevision ?? 0,
         maxTurns: room.maxTurns,
         maxConcurrentRequests: room.maxConcurrentRequests ?? maxConcurrentRequests,
       });
-  }, [room.title, room.objective, room.maxTurns, room.maxConcurrentRequests, dirty]);
+  }, [
+    room.title,
+    room.objective,
+    room.humanInstructions,
+    room.instructionRevision,
+    room.maxTurns,
+    room.maxConcurrentRequests,
+    dirty,
+  ]);
   function update(patch: Partial<WorkspaceSettingsInput>) {
     setValue((v) => ({ ...v, ...patch }));
     setDirty(true);
@@ -427,7 +440,7 @@ function WorkspaceForm({ room, onSaved }: { room: Room; onSaved: (room: Room) =>
       onSaved(saved);
       setDirty(false);
       setResult(
-        'Workspace settings saved. Previous invocation snapshots keep their original objective.',
+        'Workspace settings saved. New requests use these instructions; existing invocation context stays unchanged.',
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to save workspace settings.');
@@ -479,6 +492,21 @@ function WorkspaceForm({ room, onSaved }: { room: Room; onSaved: (room: Room) =>
             onChange={(e) => update({ maxTurns: Number(e.target.value) })}
           />
         </label>
+        <label>
+          Workspace instructions
+          <textarea
+            aria-label="Workspace instructions"
+            rows={5}
+            maxLength={3000}
+            value={value.humanInstructions ?? ''}
+            onChange={(e) => update({ humanInstructions: e.target.value })}
+          />
+        </label>
+        <p className="muted">
+          Revision {room.instructionRevision ?? 0}. Applies to new requests in this workspace.
+          Retries and ongoing workflows retain their submitted objective, instructions, and roles.
+          Connection checks omit workspace instructions.
+        </p>
         <p className="muted">
           {room.turnsUsed} turns already used. Deleting threads keeps that usage; changing the
           objective affects new requests.
@@ -509,6 +537,42 @@ function WorkspaceForm({ room, onSaved }: { room: Room; onSaved: (room: Room) =>
           {busy ? 'Saving…' : 'Save workspace'}
         </button>
       </fieldset>
+      <details className="instruction-history">
+        <summary>
+          Workspace instruction history ({workspaceInstructionHistory(room).length})
+        </summary>
+        <ol>
+          {workspaceInstructionHistory(room)
+            .toReversed()
+            .map((entry) => (
+              <li key={entry.revision}>
+                <strong>
+                  Revision {entry.revision} ·{' '}
+                  {entry.source === 'created'
+                    ? 'Created'
+                    : entry.source === 'edited'
+                      ? 'Edited'
+                      : 'Recovered current settings'}
+                </strong>
+                <p>
+                  {entry.recordedAt
+                    ? new Date(entry.recordedAt).toLocaleString()
+                    : 'Edit time unknown; earlier unrecorded edits cannot be recovered.'}
+                </p>
+                <p>
+                  <strong>Objective:</strong> {entry.objective || 'No shared objective.'}
+                </p>
+                <pre
+                  className="instruction-text"
+                  tabIndex={0}
+                  aria-label={`Workspace instructions revision ${entry.revision}`}
+                >
+                  {entry.humanInstructions || 'No additional instructions.'}
+                </pre>
+              </li>
+            ))}
+        </ol>
+      </details>
     </form>
   );
 }

@@ -11,6 +11,7 @@ import {
   stopDiscussionSchema,
   agentLabel,
   bulkWorkspaceTokenSchema,
+  workspaceInstructionHistory,
 } from '../shared/contracts.js';
 import type { ConversationEngine } from './engine.js';
 import { AppError } from './errors.js';
@@ -326,6 +327,9 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         const parts = [
           `# ${room.title}\n\n${room.objective}\n\n${room.agents.every((a) => a.provider === 'simulated') ? 'Simulation transcript' : 'Conversation transcript'}. All messages are room-visible. Provider labels below describe the frozen invocation settings.\n`,
         ];
+        parts.push(
+          `\n## Workspace instruction revisions\n\n\`\`\`json\n${JSON.stringify(workspaceInstructionHistory(room), null, 2)}\n\`\`\`\n`,
+        );
         if (room.archivedAt)
           parts.push(
             `\nWorkspace archived: ${room.archivedAt}. Restore and resume explicitly to run work.\n`,
@@ -341,9 +345,14 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
               : agentLabel(room, message.authorId, message.snapshotId);
           const snapshot = room.snapshots.find((s) => s.id === message.snapshotId);
           const binding = snapshot?.agents.find((a) => a.id === message.authorId);
-          const redaction = snapshot?.deletedMessageIds?.length
-            ? `\n\nContext: ${snapshot.deletedMessageIds.length} source messages removed by thread deletion; historical context is redacted.`
+          const instructions = snapshot
+            ? `\n\nWorkspace instructions: ${snapshot.instructionRevision === undefined ? 'legacy revision unknown' : `revision ${snapshot.instructionRevision}`}.`
             : '';
+          const redaction =
+            instructions +
+            (snapshot?.deletedMessageIds?.length
+              ? `\n\nContext: ${snapshot.deletedMessageIds.length} source messages removed by thread deletion; historical context is redacted.`
+              : '');
           const attempt = room.jobs.find((j) => j.messageId === message.id);
           const recipients =
             message.recipientIds

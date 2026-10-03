@@ -19,9 +19,14 @@ import { RoomStore } from '../src/server/store.js';
 import type { ProviderEvent, ProviderInput } from '../src/server/providers.js';
 import { command, ControlledProvider, until } from './helpers.js';
 
-function fixture(count = 3, provider = new ControlledProvider(), path = ':memory:') {
+function fixture(
+  count = 3,
+  provider = new ControlledProvider(),
+  path = ':memory:',
+  now?: () => Date,
+) {
   const store = new RoomStore(path);
-  const engine = new ConversationEngine(store, provider, { autoSchedule: false });
+  const engine = new ConversationEngine(store, provider, { autoSchedule: false, now });
   const room = engine.createRoom({ title: 'Removal', participantCount: count });
   return {
     store,
@@ -71,7 +76,8 @@ function retained(room: Room) {
 }
 
 test('removal retires an exact identity, records a full revision, retains original provenance and usage, and excludes its settings from fresh context', async (t) => {
-  const f = fixture(2);
+  let clock = Date.parse('2026-10-03T00:00:00Z');
+  const f = fixture(2, undefined, ':memory:', () => new Date(clock++));
   t.after(f.close);
   const [a, b] = f.room.agents;
   const other = f.engine.createRoom({ title: 'Untouched', participantCount: 1 });

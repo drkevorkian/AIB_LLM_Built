@@ -72,6 +72,7 @@ export type AgentRemovalInput = z.input<typeof agentRemovalSchema>;
 export const createRoomSchema = z.strictObject({
   title: z.string().trim().min(1).max(100),
   objective: z.string().trim().max(3000).default(''),
+  humanInstructions: z.string().max(3000).default(''),
   maxTurns: z.number().int().min(1).max(1000).default(100),
   maxConcurrentRequests: requestLimitSchema.default(maxConcurrentRequests),
   participantCount: z.number().int().min(1).max(maxParticipants).default(3),
@@ -98,6 +99,8 @@ export const defaultAppSettings: AppSettings = {
 export const workspaceSettingsSchema = z.strictObject({
   title: z.string().trim().min(1).max(100),
   objective: z.string().trim().max(3000),
+  humanInstructions: z.string().max(3000).default(''),
+  expectedInstructionRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
   maxTurns: z.number().int().min(1).max(1000),
   maxConcurrentRequests: requestLimitSchema.default(maxConcurrentRequests),
 });
@@ -253,6 +256,9 @@ export interface ContextSnapshot {
   id: string;
   sequence: number;
   objective: string;
+  /** Legacy snapshots retain unknown instruction provenance; never fill from current settings. */
+  humanInstructions?: string;
+  instructionRevision?: number;
   agents: Agent[];
   messages: (Pick<Message, 'id' | 'authorId' | 'type' | 'body'> & { authorName?: string })[];
   createdAt: string;
@@ -340,6 +346,9 @@ export interface Room {
   id: string;
   title: string;
   objective: string;
+  humanInstructions?: string;
+  instructionRevision?: number;
+  instructionRevisions?: WorkspaceInstructionRevision[];
   status: RoomStatus;
   /** Archived workspaces retain their history and cannot schedule work. Legacy absence means open. */
   archivedAt?: string | null;
@@ -364,6 +373,32 @@ export interface Room {
   events: AuditEvent[];
   relays: Relay[];
   discussions: Discussion[];
+}
+export interface WorkspaceInstructionRevision {
+  revision: number;
+  objective: string;
+  humanInstructions: string;
+  recordedAt: string | null;
+  source: 'created' | 'edited' | 'recovered';
+}
+/** Recover only the known current legacy settings, without inventing old edits or timestamps. */
+export function workspaceInstructionHistory(
+  room: Pick<
+    Room,
+    'objective' | 'humanInstructions' | 'instructionRevision' | 'instructionRevisions'
+  >,
+): WorkspaceInstructionRevision[] {
+  return (
+    room.instructionRevisions ?? [
+      {
+        revision: room.instructionRevision ?? 0,
+        objective: room.objective,
+        humanInstructions: room.humanInstructions ?? '',
+        recordedAt: null,
+        source: 'recovered',
+      },
+    ]
+  );
 }
 export type RoomSummary = Pick<
   Room,

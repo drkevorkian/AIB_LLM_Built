@@ -1993,6 +1993,27 @@ progress::-moz-progress-bar {
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+.instruction-history {
+  margin-top: 16px;
+  min-width: 0;
+}
+.instruction-history > summary {
+  cursor: pointer;
+}
+.instruction-history li {
+  margin-top: 16px;
+  overflow-wrap: anywhere;
+}
+.instruction-text {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+  margin-top: 8px;
+}
 .settings-section-heading {
   display: flex;
   align-items: flex-start;
