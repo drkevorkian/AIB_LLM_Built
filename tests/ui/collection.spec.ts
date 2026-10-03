@@ -73,7 +73,7 @@ async function fixture(page: Page) {
   for (const agent of room.agents)
     expect(
       (
-        await page.request.put(`/api/rooms/${room.id}/agents`, {
+        await page.request.post(`/api/rooms/${room.id}/agents`, {
           headers,
           data: {
             agentId: agent.id,

@@ -497,8 +497,15 @@ test('updated synthesis transaction rolls back on a forced SQLite write failure'
 
 test('deadline, explicit wait and synthesis revisions persist through disk restart without automatic dispatch', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'aib-collection-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
   const f = setup({ path: join(directory, 'rooms.sqlite') });
+  let reopenedStore: RoomStore | undefined;
+  let reopenedEngine: ConversationEngine | undefined;
+  t.after(() => {
+    reopenedEngine?.close();
+    reopenedStore?.close();
+    f.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
   const sent = await lateSet(f);
   const result = f.engine.updatedSynthesis(f.room.id, {
     clientId: randomUUID(),
@@ -514,12 +521,10 @@ test('deadline, explicit wait and synthesis revisions persist through disk resta
   const before = f.record();
   f.close();
   const store = new RoomStore(join(directory, 'rooms.sqlite'), f.now);
+  reopenedStore = store;
   const provider = new ControlledProvider();
   const engine = new ConversationEngine(store, provider, { autoSchedule: false, now: f.now });
-  t.after(() => {
-    engine.close();
-    store.close();
-  });
+  reopenedEngine = engine;
   const saved = store.get(f.room.id);
   assert.equal(saved.status, 'paused');
   assert.deepEqual(
