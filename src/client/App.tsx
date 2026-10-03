@@ -21,6 +21,7 @@ import { searchWorkspaces, searchThreads, type WorkspaceView } from './search.js
 import { CopyButton } from './CopyButton.js';
 import { MessageText } from './MessageText.js';
 import { InstructionNotice } from './InstructionNotice.js';
+import { InterjectionNotice } from './InterjectionNotice.js';
 import {
   invocationInstructionProvenance,
   messageInstructionProvenance,
@@ -1075,6 +1076,7 @@ export function App() {
           <p className="muted">Message ID: {inspect.id}</p>
           <p>Visible to the room · reply to {inspect.replyTo ?? 'none'}</p>
           <InstructionNotice provenance={messageInstructionProvenance(room, inspect)} showCurrent />
+          <InterjectionNotice message={inspect} />
           {room.jobs
             .filter((j) => j.messageId === inspect.id)
             .map((j) => (
@@ -1172,6 +1174,7 @@ function MessageCard({
             )}
         </div>
         <InstructionNotice provenance={instructionProvenance} />
+        <InterjectionNotice message={m} />
         <MessageText
           text={m.body}
           source={source}
@@ -1485,7 +1488,13 @@ function Composer({
   const [recipients, setRecipients] = useState(() =>
     (activeAgents.length > 1 ? activeAgents.slice(1) : activeAgents).map((a) => a.id),
   );
-  const [type, setType] = useState<'question' | 'update' | 'relay' | 'discussion'>('question');
+  const [type, setType] = useState<'question' | 'update' | 'relay' | 'discussion' | 'interjection'>(
+    'question',
+  );
+  const [interjectionPriority, setInterjectionPriority] = useState<'normal' | 'urgent'>('normal');
+  const [interjectionDispatch, setInterjectionDispatch] = useState<'record_only' | 'pause'>(
+    'pause',
+  );
   const [leaderId, setLeaderId] = useState(activeAgents[0]?.id ?? '');
   const [maxRounds, setMaxRounds] = useState(defaults.defaultDiscussionRounds);
   const [maxTurns, setMaxTurns] = useState(defaults.defaultDiscussionTurns);
@@ -1542,7 +1551,7 @@ function Composer({
   );
   const synthesisCandidate = synthesizer ?? activeAgents.find((a) => !recipients.includes(a.id));
   const invalidRouting =
-    (type === 'question' && !recipients.length) ||
+    ((type === 'question' || type === 'interjection') && !recipients.length) ||
     (type === 'relay' && !relayOrder.length) ||
     (type === 'discussion' && !leaderId);
   async function send(event: FormEvent) {
@@ -1571,14 +1580,19 @@ function Composer({
             : type === 'relay'
               ? relayOrder.slice(0, 1)
               : recipients,
-        policy: type === 'relay' || type === 'discussion' ? 'all' : policy,
-        quorum,
+        policy:
+          type === 'relay' || type === 'discussion' || type === 'interjection' ? 'all' : policy,
+        quorum: type === 'interjection' ? 1 : quorum,
         synthesisAgentId: type === 'question' && synthesis && synthesizer ? synthesizer.id : null,
         threadId,
         replyTo: reply?.id ?? null,
         deadlineSeconds,
         relayOrder: type === 'relay' ? relayOrder : [],
         discussion: type === 'discussion' ? { maxRounds, maxTurns } : null,
+        interjection:
+          type === 'interjection'
+            ? { priority: interjectionPriority, dispatchPolicy: interjectionDispatch }
+            : null,
       });
       setBody('');
       setRosterChanged(false);
@@ -1747,13 +1761,23 @@ function Composer({
             </button>
           </div>
         )}
+        {type === 'interjection' && (
+          <p className="notice" role="note" aria-label="Interjection policy explanation">
+            Record addressed human input immediately. Priority is a recorded human label; it does
+            not reorder work. Pause holds new dispatches across this workspace while active work may
+            finish. Existing requests keep their frozen context. To revise the task, use Stop and
+            ask a new question; Resume continues the original work.
+          </p>
+        )}
         <textarea
           ref={textarea}
           aria-label="Message"
           placeholder={
-            type !== 'update'
-              ? 'What should the agents explore?'
-              : 'Share an update. No replies will be scheduled.'
+            type === 'interjection'
+              ? 'Record human input now. Existing work keeps its original context.'
+              : type !== 'update'
+                ? 'What should the agents explore?'
+                : 'Share an update. No replies will be scheduled.'
           }
           value={body}
           maxLength={12000}
@@ -1784,8 +1808,9 @@ function Composer({
               <option value="relay">Automatic relay</option>
               <option value="discussion">Agent discussion</option>
               <option value="update">Update · no reply</option>
+              <option value="interjection">Human interjection</option>
             </select>
-            {type !== 'update' && (
+            {type !== 'update' && type !== 'interjection' && (
               <label className="deadline-option">
                 Deadline (s)
                 <input
@@ -1802,6 +1827,38 @@ function Composer({
                   }}
                 />
               </label>
+            )}
+            {type === 'interjection' && (
+              <>
+                <label>
+                  Priority
+                  <select
+                    aria-label="Interjection priority"
+                    value={interjectionPriority}
+                    onChange={(e) => {
+                      setInterjectionPriority(e.target.value as typeof interjectionPriority);
+                      clientId.current = null;
+                    }}
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </label>
+                <label>
+                  Dispatch
+                  <select
+                    aria-label="Interjection dispatch policy"
+                    value={interjectionDispatch}
+                    onChange={(e) => {
+                      setInterjectionDispatch(e.target.value as typeof interjectionDispatch);
+                      clientId.current = null;
+                    }}
+                  >
+                    <option value="pause">Pause new dispatches</option>
+                    <option value="record_only">Record only</option>
+                  </select>
+                </label>
+              </>
             )}
             {type === 'question' && (
               <>
@@ -1863,22 +1920,26 @@ function Composer({
               ? 'Sending…'
               : refreshing
                 ? 'Updating…'
-                : room.status === 'paused'
-                  ? 'Queue'
-                  : 'Send'}
+                : type === 'interjection'
+                  ? 'Record interjection'
+                  : room.status === 'paused'
+                    ? 'Queue'
+                    : 'Send'}
             <Glyph kind="send" size={15} />
           </button>
         </div>
         <div className="composer-footnote">
           <span>
             {threadId ? 'This thread' : 'Starts a new thread'} ·{' '}
-            {type === 'update'
-              ? 'No agents invoked'
-              : type === 'relay'
-                ? `${relayOrder.length} turns reserved; each hop waits for the previous answer`
-                : type === 'discussion'
-                  ? `${maxTurns} turns reserved, including decisions, peer answers, and correction attempts`
-                  : 'Independent answers from the same starting context'}
+            {type === 'interjection'
+              ? 'Recorded now; no response requested; existing context stays frozen'
+              : type === 'update'
+                ? 'No agents invoked'
+                : type === 'relay'
+                  ? `${relayOrder.length} turns reserved; each hop waits for the previous answer`
+                  : type === 'discussion'
+                    ? `${maxTurns} turns reserved, including decisions, peer answers, and correction attempts`
+                    : 'Independent answers from the same starting context'}
           </span>
           <span>Ctrl / ⌘ + Enter</span>
         </div>

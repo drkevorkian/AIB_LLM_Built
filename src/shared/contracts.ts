@@ -150,7 +150,7 @@ export type ThreadSettingsInput = z.infer<typeof threadSettingsSchema>;
 export const sendSchema = z.strictObject({
   clientId: z.string().uuid(),
   body: z.string().trim().min(1).max(12000),
-  type: z.enum(['question', 'update']),
+  type: z.enum(['question', 'update', 'interjection']),
   recipientIds: z.array(idSchema).max(8),
   policy: z.enum(['all', 'any', 'quorum']).default('all'),
   quorum: z.number().int().min(1).max(8).default(1),
@@ -163,6 +163,13 @@ export const sendSchema = z.strictObject({
     .strictObject({
       maxRounds: z.number().int().min(1).max(10),
       maxTurns: z.number().int().min(2).max(50),
+    })
+    .nullable()
+    .default(null),
+  interjection: z
+    .strictObject({
+      priority: z.enum(['normal', 'urgent']),
+      dispatchPolicy: z.enum(['record_only', 'pause']),
     })
     .nullable()
     .default(null),
@@ -242,7 +249,7 @@ export interface Message {
   authorId: string;
   recipientIds: string[];
   visibility: 'room';
-  type: 'question' | 'update' | 'answer' | 'synthesis';
+  type: 'question' | 'update' | 'interjection' | 'answer' | 'synthesis';
   body: string;
   status: MessageStatus;
   replyTo: string | null;
@@ -251,6 +258,13 @@ export interface Message {
   createdAt: string;
   clientId?: string;
   commandHash?: string;
+  /** Human-authored control record; observed IDs do not revise existing obligations. */
+  interjection?: {
+    priority: 'normal' | 'urgent';
+    dispatchPolicy: 'record_only' | 'pause';
+    queuedJobIds: string[];
+    runningJobIds: string[];
+  };
 }
 export interface ContextSnapshot {
   id: string;

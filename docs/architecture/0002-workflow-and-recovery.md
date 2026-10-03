@@ -39,7 +39,7 @@ Live adapters preserve provider-reported request IDs and usage. Provider-specifi
 
 ## Context limits
 
-Initial snapshots include complete messages in the relevant thread and complete room updates. Recipient jobs share that same snapshot even if they start at different times. Each answer invocation receives no sibling-answer side channel.
+Initial snapshots include complete messages in the relevant thread and complete room updates and recorded human interjections. Recipient jobs share that same snapshot even if they start at different times. Each answer invocation receives no sibling-answer side channel.
 
 Explicit human thread deletion is an exception to context immutability: removed sources are redacted from stored copies, affected pending work is cancelled, and affected attempts cannot retry against altered context. Inspection/export identifies redacted historical snapshots. See [settings and deletion](0005-settings-and-deletion.md).
 
@@ -58,3 +58,5 @@ A successful answer and its next-hop request/job are committed in one transactio
 Each hop gets its own response deadline. Failure, refusal, or an interrupted attempt blocks progression. An eligible explicit retry of the current hop can release the next step once. Timeout cancels that relay’s remaining hops and pauses the room. Stop cancels active and queued work and releases unused future relay reservations. Resume never reconstructs cancelled hops.
 
 If a completed hop makes the next context too large, the completed answer stays successful and the relay becomes blocked with an explicit capacity explanation. Stop and start a shorter thread; no source history is silently removed.
+
+Human interjections are implemented in v0.18.0; see [ADR 0019](0019-human-interjections.md). Their optional room pause holds dispatch while preserving original response sets and context. Task correction and revised obligations remain separate.

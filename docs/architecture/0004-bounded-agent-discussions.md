@@ -55,7 +55,7 @@ The root message, grant, initial decision request, frozen context, and coordinat
 
 Peer jobs receive the same snapshot and no sibling answer channel. Each peer answer replies to the coordinator's exact question and is addressed to the coordinator and human. The response set closes with immutable included IDs under all/any/quorum. Only that closed set is appended to the coordinator's next frozen snapshot. Included and missing respondents are supplied separately. Late answers stay visible without rewriting the continuation.
 
-The submitted objective, source context, and participant bindings stay frozen throughout. Later human updates do not silently revise a granted workflow. Explicit correction/interjection policies remain planned.
+The submitted objective, source context, and participant bindings stay frozen throughout. Later human updates do not silently revise a granted workflow. v0.18.0 records human interjections and optionally pauses new dispatches (ADR 0019). Applying corrections to a discussion’s frozen context and obligations remains planned.
 
 A valid finish records the final result ID and completes the discussion. Queued/running late peer jobs are cancelled; completed late answers stay preserved. No late event may reopen or extend the finished discussion.
 

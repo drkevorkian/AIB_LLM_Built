@@ -357,9 +357,14 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
           const instructionStatus = provenance
             ? `\n\nInstruction provenance: ${instructionProvenanceLabel(provenance)}. ${instructionProvenanceDetails(provenance).join(' ')} Original outcome: ${message.status}.`
             : '';
+          const interjection =
+            message.authorId === 'human' && message.type === 'interjection' && message.interjection
+              ? `\n\nHuman interjection: priority ${message.interjection.priority}; dispatch policy ${message.interjection.dispatchPolicy}; work observed at recording: ${message.interjection.queuedJobIds.length} queued, ${message.interjection.runningJobIds.length} active. Existing work retains its frozen context; no response obligations were created.`
+              : '';
           const contextNotes =
             instructions +
             instructionStatus +
+            interjection +
             (snapshot?.deletedMessageIds?.length
               ? `\n\nContext: ${snapshot.deletedMessageIds.length} source messages removed by thread deletion; historical context is redacted.`
               : '');

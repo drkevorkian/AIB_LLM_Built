@@ -847,9 +847,12 @@ export class ConversationEngine extends EventEmitter {
     const canonical = { ...input };
     if (!input.relayOrder.length) delete (canonical as Partial<typeof input>).relayOrder;
     if (!input.discussion) delete (canonical as Partial<typeof input>).discussion;
+    if (!input.interjection) delete (canonical as Partial<typeof input>).interjection;
     const commandHash = createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
     const current = this.store.get(roomId);
     this.assertWorkspaceOpen(current);
+    if (input.type === 'interjection' && this.closed)
+      throw new AppError(409, 'The service is shutting down.');
     if (current.deletedClientIds?.includes(input.clientId))
       throw new AppError(
         409,
@@ -881,6 +884,22 @@ export class ConversationEngine extends EventEmitter {
         throw new AppError(400, 'Unknown or inactive synthesis agent.');
       if (input.type === 'question' && !input.recipientIds.length)
         throw new AppError(400, 'A question needs at least one recipient.');
+      if (input.type === 'interjection') {
+        if (!input.interjection || !input.recipientIds.length)
+          throw new AppError(
+            400,
+            'An interjection needs recipients, priority, and a dispatch policy.',
+          );
+        if (
+          input.synthesisAgentId ||
+          input.relayOrder.length ||
+          input.discussion ||
+          input.policy !== 'all' ||
+          input.quorum !== 1
+        )
+          throw new AppError(400, 'Interjections record human input without response obligations.');
+      } else if (input.interjection)
+        throw new AppError(400, 'Interjection controls require an interjection message.');
       if (input.relayOrder.length) {
         if (
           input.type !== 'question' ||
@@ -953,12 +972,31 @@ export class ConversationEngine extends EventEmitter {
         createdAt: this.timestamp(),
         clientId: input.clientId,
         commandHash,
+        ...(input.interjection
+          ? {
+              interjection: {
+                ...input.interjection,
+                queuedJobIds: room.jobs.filter((j) => j.status === 'queued').map((j) => j.id),
+                runningJobIds: room.jobs.filter((j) => j.status === 'running').map((j) => j.id),
+              },
+            }
+          : {}),
       };
       room.messages.push(message);
+      if (input.interjection) {
+        if (input.interjection.dispatchPolicy === 'pause') room.status = 'paused';
+        this.audit(
+          room,
+          'human.interjected',
+          `Message ${message.id}; thread ${threadId}; to ${input.recipientIds.join(', ')}; priority ${input.interjection.priority}; dispatch policy ${input.interjection.dispatchPolicy}. Original work retains its frozen context.`,
+        );
+      }
       let discussionId: string | undefined;
       if (requestId) {
         const relevant = room.messages.filter(
-          (m) => m.status === 'complete' && (m.threadId === threadId || m.type === 'update'),
+          (m) =>
+            m.status === 'complete' &&
+            (m.threadId === threadId || m.type === 'update' || m.type === 'interjection'),
         );
         const snapshot = this.snapshot(room, relevant);
         room.snapshots.push(snapshot);
