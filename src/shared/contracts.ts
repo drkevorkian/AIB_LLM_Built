@@ -42,6 +42,25 @@ export interface ConnectionTestResult {
   testedAt: string;
 }
 export const maxParticipants = 8;
+export const maxConcurrentRequests = 4;
+const requestLimitSchema = z.number().int().min(1).max(maxConcurrentRequests);
+export const providerConcurrencySchema = z.strictObject({
+  simulated: requestLimitSchema,
+  openai: requestLimitSchema,
+  xai: requestLimitSchema,
+  gemini: requestLimitSchema,
+  ollama: requestLimitSchema,
+  'openai-compatible': requestLimitSchema,
+});
+export type ProviderConcurrency = z.infer<typeof providerConcurrencySchema>;
+export const defaultProviderConcurrency: ProviderConcurrency = {
+  simulated: 4,
+  openai: 4,
+  xai: 4,
+  gemini: 4,
+  ollama: 4,
+  'openai-compatible': 4,
+};
 export const addAgentSchema = agentSettingsSchema.pick({ name: true, role: true });
 export const agentActivationSchema = z.strictObject({ active: z.boolean() });
 export const agentRemovalSchema = z.strictObject({
@@ -54,6 +73,7 @@ export const createRoomSchema = z.strictObject({
   title: z.string().trim().min(1).max(100),
   objective: z.string().trim().max(3000).default(''),
   maxTurns: z.number().int().min(1).max(1000).default(100),
+  maxConcurrentRequests: requestLimitSchema.default(maxConcurrentRequests),
   participantCount: z.number().int().min(1).max(maxParticipants).default(3),
 });
 export const appSettingsSchema = z.strictObject({
@@ -63,6 +83,7 @@ export const appSettingsSchema = z.strictObject({
   defaultSynthesis: z.boolean(),
   defaultDiscussionRounds: z.number().int().min(1).max(10),
   defaultDiscussionTurns: z.number().int().min(2).max(50),
+  providerConcurrency: providerConcurrencySchema.default(defaultProviderConcurrency),
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;
 export const defaultAppSettings: AppSettings = {
@@ -72,13 +93,15 @@ export const defaultAppSettings: AppSettings = {
   defaultSynthesis: true,
   defaultDiscussionRounds: 3,
   defaultDiscussionTurns: 12,
+  providerConcurrency: { ...defaultProviderConcurrency },
 };
 export const workspaceSettingsSchema = z.strictObject({
   title: z.string().trim().min(1).max(100),
   objective: z.string().trim().max(3000),
   maxTurns: z.number().int().min(1).max(1000),
+  maxConcurrentRequests: requestLimitSchema.default(maxConcurrentRequests),
 });
-export type WorkspaceSettingsInput = z.infer<typeof workspaceSettingsSchema>;
+export type WorkspaceSettingsInput = z.input<typeof workspaceSettingsSchema>;
 export const workspaceArchiveSchema = z.strictObject({ archived: z.boolean() });
 export type WorkspaceArchiveInput = z.infer<typeof workspaceArchiveSchema>;
 export const maxBulkWorkspaces = 25;
@@ -325,6 +348,8 @@ export interface Room {
   updatedAt: string;
   maxTurns: number;
   turnsUsed: number;
+  /** Legacy absence uses the service maximum of four managed requests. */
+  maxConcurrentRequests?: number;
   /** Monotonic even when the most recent thread is deleted. */
   messageSequence?: number;
   /** Minimal replay tombstones retain UUIDs, never deleted text or command hashes. */
@@ -362,6 +387,8 @@ export type QueueBlocker =
   | 'connection_check'
   | 'earlier_job'
   | 'service_capacity'
+  | 'workspace_capacity'
+  | 'provider_capacity'
   | 'turn_limit'
   | 'deadline_elapsed'
   | 'discussion_closed'
@@ -408,6 +435,8 @@ export interface RoomActivity {
   roomRevision: number;
   observedAt: string;
   capacity: { inUse: number; limit: number };
+  workspaceCapacity: { inUse: number; limit: number };
+  providerCapacity: { provider: ProviderKind; inUse: number; limit: number }[];
   participants: ParticipantActivity[];
 }
 

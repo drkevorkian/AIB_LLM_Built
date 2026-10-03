@@ -27,6 +27,8 @@ import type {
   BulkWorkspaceInput,
   BulkWorkspacePreview,
   BulkWorkspaceResult,
+  ProviderKind,
+  ProviderConcurrency,
 } from '../shared/contracts.js';
 import {
   agentActionSchema,
@@ -47,6 +49,8 @@ import {
   connectionTestSchema,
   bulkWorkspaceSchema,
   bulkWorkspaceTokenSchema,
+  maxConcurrentRequests,
+  providerConcurrencySchema,
 } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
@@ -65,8 +69,12 @@ const terminal = new Set(['completed', 'failed', 'refused', 'cancelled', 'interr
 export class ConversationEngine extends EventEmitter {
   private now: () => Date;
   private id: () => string;
-  private active = new Map<string, { roomId: string; agentId: string; abort: AbortController }>();
+  private active = new Map<
+    string,
+    { roomId: string; agentId: string; provider: ProviderKind; abort: AbortController }
+  >();
   private connectionChecks = new Map<string, AbortController>();
+  private probeBindings = new Map<AbortController, { roomId: string; provider: ProviderKind }>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
   private concurrency: number;
@@ -87,7 +95,7 @@ export class ConversationEngine extends EventEmitter {
     super();
     this.now = options.now ?? (() => new Date());
     this.id = options.id ?? randomUUID;
-    this.concurrency = options.concurrency ?? 4;
+    this.concurrency = options.concurrency ?? maxConcurrentRequests;
     this.recover();
     if (options.autoSchedule !== false) {
       this.timer = setInterval(() => this.pump(), 100);
@@ -125,6 +133,7 @@ export class ConversationEngine extends EventEmitter {
       createdAt,
       updatedAt: createdAt,
       maxTurns: input.maxTurns,
+      maxConcurrentRequests: input.maxConcurrentRequests,
       turnsUsed: 0,
       agents,
       agentRevisions: agents.map((agent) => ({
@@ -151,11 +160,15 @@ export class ConversationEngine extends EventEmitter {
   }
 
   activity(roomId: string): RoomActivity {
+    const occupancy = this.occupancy(roomId);
     return inspectActivity(this.store.get(roomId), {
       activeAgentIds: new Set([...this.active.values()].map((task) => task.agentId)),
       checkingAgentIds: new Set(this.connectionChecks.keys()),
       inUse: this.active.size + this.connectionChecks.size,
       limit: this.concurrency,
+      workspaceInUse: occupancy.workspaceInUse,
+      providerInUse: occupancy.providerInUse,
+      providerLimits: this.settings().providerConcurrency,
       closed: this.closed,
       now: this.now(),
     });
@@ -165,10 +178,45 @@ export class ConversationEngine extends EventEmitter {
     return this.store.settings();
   }
 
-  saveSettings(input: AppSettings): AppSettings {
+  saveSettings(input: unknown): AppSettings {
     const saved = this.store.saveSettings(input);
     this.changed('settings');
     return saved;
+  }
+
+  saveProviderConcurrency(raw: ProviderConcurrency): AppSettings {
+    const providerConcurrency = providerConcurrencySchema.parse(raw);
+    return this.saveSettings({ ...this.settings(), providerConcurrency });
+  }
+
+  private occupancy(roomId: string) {
+    // Only currently managed requests count. Explicit deletion releases these maps
+    // immediately; ordinary completion/Stop retains occupancy through cleanup.
+    const tasks = [
+      ...this.active.values(),
+      ...[...this.connectionChecks.values()].flatMap((abort) => {
+        const binding = this.probeBindings.get(abort);
+        return binding ? [binding] : [];
+      }),
+    ];
+    const providerInUse = new Map<ProviderKind, number>();
+    for (const task of tasks)
+      providerInUse.set(task.provider, (providerInUse.get(task.provider) ?? 0) + 1);
+    return {
+      workspaceInUse: tasks.filter((task) => task.roomId === roomId).length,
+      providerInUse,
+    };
+  }
+
+  private scopedCapacityHold(room: Room, provider: ProviderKind): string | null {
+    const occupancy = this.occupancy(room.id);
+    if (occupancy.workspaceInUse >= (room.maxConcurrentRequests ?? maxConcurrentRequests))
+      return 'Workspace request limit is full. Wait for an active request to finish.';
+    if (
+      (occupancy.providerInUse.get(provider) ?? 0) >= this.settings().providerConcurrency[provider]
+    )
+      return 'Provider request limit is full. Wait for an active request to finish.';
+    return null;
   }
 
   configureWorkspace(roomId: string, raw: WorkspaceSettingsInput): void {
@@ -183,13 +231,16 @@ export class ConversationEngine extends EventEmitter {
       )
         throw new AppError(409, 'Finish or stop pending work before editing workspace settings.');
       room.maxTurns = input.maxTurns;
+      room.maxConcurrentRequests = Object.hasOwn(raw, 'maxConcurrentRequests')
+        ? input.maxConcurrentRequests
+        : (room.maxConcurrentRequests ?? maxConcurrentRequests);
       this.reserve(room, 0);
       room.title = input.title;
       room.objective = input.objective;
       this.audit(
         room,
         'room.configured',
-        'Workspace name, objective, and turn limit updated. Previous invocation snapshots retain their settings.',
+        'Workspace name, objective, turn limit, and request limit updated. Previous invocation snapshots retain their settings.',
       );
     });
     this.changed(roomId);
@@ -640,13 +691,16 @@ export class ConversationEngine extends EventEmitter {
       this.active.size + this.connectionChecks.size >= this.concurrency
     )
       throw new AppError(409, 'This participant is busy. Wait for its current request to finish.');
+    const hold = this.scopedCapacityHold(room, agent.provider);
+    if (hold) throw new AppError(409, hold);
     const abort = new AbortController();
-    this.connectionChecks.set(agentId, abort);
     const snapshot = this.snapshot({ ...room, objective: '' }, []);
     const signal = AbortSignal.any([
       abort.signal,
       AbortSignal.timeout(Math.min(agent.timeoutSeconds ?? 180, 30) * 1000),
     ]);
+    this.probeBindings.set(abort, { roomId, provider: agent.provider });
+    this.connectionChecks.set(agentId, abort);
     let text = '';
     let action: unknown;
     let actionCount = 0;
@@ -734,6 +788,7 @@ export class ConversationEngine extends EventEmitter {
       throw new AppError(400, message);
     } finally {
       this.connectionChecks.delete(agentId);
+      this.probeBindings.delete(abort);
       this.changed(roomId);
     }
   }
@@ -1114,10 +1169,12 @@ export class ConversationEngine extends EventEmitter {
       this.expire(initial.id);
       const room = this.store.get(initial.id);
       if (room.status !== 'running') continue;
+      const queuedAgents = new Set<string>();
       for (const job of room.jobs) {
         if (this.active.size + this.connectionChecks.size >= this.concurrency) return;
+        if (job.status !== 'queued' || queuedAgents.has(job.agentId)) continue;
+        queuedAgents.add(job.agentId);
         if (
-          job.status !== 'queued' ||
           this.connectionChecks.has(job.agentId) ||
           [...this.active.values()].some((t) => t.agentId === job.agentId)
         )
@@ -1140,6 +1197,13 @@ export class ConversationEngine extends EventEmitter {
   }
 
   private start(roomId: string, jobId: string): void {
+    const current = this.store.get(roomId);
+    const queued = current.jobs.find((job) => job.id === jobId)!;
+    const binding = current.snapshots
+      .find((snapshot) => snapshot.id === queued.snapshotId)!
+      .agents.find((agent) => agent.id === queued.agentId)!;
+    // A capacity hold is a read, not a durable claim or a room revision.
+    if (this.scopedCapacityHold(current, binding.provider)) return;
     const abort = new AbortController();
     let input: ProviderInput | null = null;
     let claimedAgentId = '';
@@ -1260,7 +1324,7 @@ export class ConversationEngine extends EventEmitter {
       this.changed(roomId);
       return;
     }
-    this.active.set(jobId, { roomId, agentId: claimedAgentId, abort });
+    this.active.set(jobId, { roomId, agentId: claimedAgentId, provider: binding.provider, abort });
     this.changed(roomId);
     void this.generate(roomId, jobId, input, abort.signal);
   }

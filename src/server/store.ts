@@ -109,8 +109,11 @@ export class RoomStore {
     );
   }
 
-  saveSettings(raw: AppSettings): AppSettings {
+  saveSettings(raw: unknown): AppSettings {
     const settings = appSettingsSchema.parse(raw);
+    // Older clients edit conversation defaults without resetting scoped limits.
+    if (!Object.hasOwn(raw as object, 'providerConcurrency'))
+      settings.providerConcurrency = this.settings().providerConcurrency;
     this.db.prepare('UPDATE settings SET payload = ? WHERE id = 1').run(JSON.stringify(settings));
     return settings;
   }

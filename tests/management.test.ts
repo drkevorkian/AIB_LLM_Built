@@ -50,6 +50,7 @@ test('v1 databases migrate without losing rooms; defaults and empty-workspace in
     assert.equal(store.get(original.room.id).title, 'Managed workspace');
     assert.deepEqual(store.settings(), defaultAppSettings);
     const settings: AppSettings = {
+      ...defaultAppSettings,
       defaultMaxTurns: 48,
       defaultDeadlineSeconds: 65,
       defaultPolicy: 'any',

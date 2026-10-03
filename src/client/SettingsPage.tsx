@@ -6,6 +6,8 @@ import {
   type AppSettings,
   type Room,
   type WorkspaceSettingsInput,
+  type ProviderConcurrency,
+  maxConcurrentRequests,
 } from '../shared/contracts.js';
 import { api } from './api.js';
 import { Participants } from './Participants.js';
@@ -76,7 +78,10 @@ export function SettingsPage({
           <button onClick={onLayoutReset}>Reset panel widths</button>
         </div>
         {defaults ? (
-          <DefaultsForm settings={defaults} onSaved={onDefaultsSaved} />
+          <>
+            <DefaultsForm settings={defaults} onSaved={onDefaultsSaved} />
+            <ProviderLimitsForm settings={defaults} onSaved={onDefaultsSaved} />
+          </>
         ) : (
           <p role="status">Loading preferences…</p>
         )}
@@ -297,11 +302,101 @@ function DefaultsForm({
   );
 }
 
+const providerLimitLabels: Record<keyof ProviderConcurrency, string> = {
+  simulated: 'Simulation request limit',
+  openai: 'OpenAI request limit',
+  xai: 'xAI request limit',
+  gemini: 'Gemini request limit',
+  ollama: 'Ollama request limit',
+  'openai-compatible': 'OpenAI-compatible request limit',
+};
+
+function ProviderLimitsForm({
+  settings,
+  onSaved,
+}: {
+  settings: AppSettings;
+  onSaved: (settings: AppSettings) => void;
+}) {
+  const [value, setValue] = useState({ ...settings.providerConcurrency });
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState('');
+  useEffect(() => {
+    if (!dirty) setValue({ ...settings.providerConcurrency });
+  }, [settings.providerConcurrency, dirty]);
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    setResult('');
+    try {
+      const saved = await api.saveProviderConcurrency(value);
+      onSaved(saved);
+      setDirty(false);
+      setResult('Provider request limits saved.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to save provider limits.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <form
+      className="room-form"
+      onSubmit={(e) => {
+        void save(e);
+      }}
+    >
+      <h3>Provider request limits</h3>
+      <p className="muted">
+        Four service slots are shared by generations and connection checks. Each provider limit
+        applies across workspaces, models, and endpoints. Lowering a limit lets active requests
+        finish; raising it can start already queued work.
+      </p>
+      <div className="settings-grid">
+        {(Object.keys(providerLimitLabels) as (keyof ProviderConcurrency)[]).map((provider) => (
+          <label key={provider}>
+            {providerLimitLabels[provider]}
+            <input
+              type="number"
+              required
+              min={1}
+              max={maxConcurrentRequests}
+              value={value[provider]}
+              onChange={(e) => {
+                setValue((previous) => ({ ...previous, [provider]: Number(e.target.value) }));
+                setDirty(true);
+                setResult('');
+              }}
+            />
+          </label>
+        ))}
+      </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {result && (
+        <p className="connection-result" role="status">
+          {result}
+        </p>
+      )}
+      <button className="primary" disabled={busy || !dirty}>
+        {busy ? 'Saving provider limits…' : 'Save provider limits'}
+      </button>
+    </form>
+  );
+}
+
 function WorkspaceForm({ room, onSaved }: { room: Room; onSaved: (room: Room) => void }) {
   const [value, setValue] = useState<WorkspaceSettingsInput>({
     title: room.title,
     objective: room.objective,
     maxTurns: room.maxTurns,
+    maxConcurrentRequests: room.maxConcurrentRequests ?? maxConcurrentRequests,
   });
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -309,8 +404,14 @@ function WorkspaceForm({ room, onSaved }: { room: Room; onSaved: (room: Room) =>
   const [result, setResult] = useState('');
   const pending = hasPendingWork(room);
   useEffect(() => {
-    if (!dirty) setValue({ title: room.title, objective: room.objective, maxTurns: room.maxTurns });
-  }, [room.title, room.objective, room.maxTurns, dirty]);
+    if (!dirty)
+      setValue({
+        title: room.title,
+        objective: room.objective,
+        maxTurns: room.maxTurns,
+        maxConcurrentRequests: room.maxConcurrentRequests ?? maxConcurrentRequests,
+      });
+  }, [room.title, room.objective, room.maxTurns, room.maxConcurrentRequests, dirty]);
   function update(patch: Partial<WorkspaceSettingsInput>) {
     setValue((v) => ({ ...v, ...patch }));
     setDirty(true);
@@ -382,6 +483,18 @@ function WorkspaceForm({ room, onSaved }: { room: Room; onSaved: (room: Room) =>
           {room.turnsUsed} turns already used. Deleting threads keeps that usage; changing the
           objective affects new requests.
         </p>
+        <label>
+          Workspace request limit
+          <input
+            type="number"
+            required
+            min={1}
+            max={maxConcurrentRequests}
+            value={value.maxConcurrentRequests ?? maxConcurrentRequests}
+            onChange={(e) => update({ maxConcurrentRequests: Number(e.target.value) })}
+          />
+        </label>
+        <p className="muted">Generations and connection checks share this workspace limit.</p>
         {error && (
           <p className="form-error" role="alert">
             {error}

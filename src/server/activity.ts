@@ -8,6 +8,9 @@ import {
   type ResponsePrerequisite,
   type Room,
   type RoomActivity,
+  type ProviderKind,
+  type ProviderConcurrency,
+  maxConcurrentRequests,
 } from '../shared/contracts.js';
 
 interface RuntimeActivity {
@@ -15,6 +18,9 @@ interface RuntimeActivity {
   checkingAgentIds: Set<string>;
   inUse: number;
   limit: number;
+  workspaceInUse: number;
+  providerInUse: Map<ProviderKind, number>;
+  providerLimits: ProviderConcurrency;
   closed: boolean;
   now: Date;
 }
@@ -106,6 +112,25 @@ export function inspectActivity(room: Room, runtime: RuntimeActivity): RoomActiv
     roomRevision: room.revision,
     observedAt: runtime.now.toISOString(),
     capacity: { inUse: runtime.inUse, limit: runtime.limit },
+    workspaceCapacity: {
+      inUse: runtime.workspaceInUse,
+      limit: room.maxConcurrentRequests ?? maxConcurrentRequests,
+    },
+    providerCapacity: [
+      ...new Set([
+        ...room.agents.filter((agent) => !agent.removedAt).map((agent) => agent.provider),
+        ...room.jobs
+          .filter((job) => ['queued', 'running'].includes(job.status))
+          .flatMap((job) => {
+            const provider = describe(job).provider;
+            return provider ? [provider] : [];
+          }),
+      ]),
+    ].map((provider) => ({
+      provider,
+      inUse: runtime.providerInUse.get(provider) ?? 0,
+      limit: runtime.providerLimits[provider],
+    })),
     participants: room.agents
       .filter((agent) => !agent.removedAt)
       .map((agent) => {
@@ -126,6 +151,14 @@ export function inspectActivity(room: Room, runtime: RuntimeActivity): RoomActiv
             if (runtime.checkingAgentIds.has(agent.id)) blockers.push('connection_check');
             if (index > 0) blockers.push('earlier_job');
             if (runtime.inUse >= runtime.limit) blockers.push('service_capacity');
+            if (runtime.workspaceInUse >= (room.maxConcurrentRequests ?? maxConcurrentRequests))
+              blockers.push('workspace_capacity');
+            const provider = describe(job).provider;
+            if (
+              provider &&
+              (runtime.providerInUse.get(provider) ?? 0) >= runtime.providerLimits[provider]
+            )
+              blockers.push('provider_capacity');
             if (room.turnsUsed >= room.maxTurns) blockers.push('turn_limit');
             if (
               request.status === 'collecting' &&

@@ -18,6 +18,8 @@ const blockerLabels: Record<QueueBlocker, string> = {
   connection_check: 'Participant is testing its connection',
   earlier_job: 'Earlier entry in this participant’s queue',
   service_capacity: 'All shared generation slots are occupied',
+  workspace_capacity: 'Workspace request limit is full',
+  provider_capacity: 'Provider request limit is full',
   turn_limit: 'Workspace turn limit is reached',
   deadline_elapsed: 'Response deadline has elapsed; cancellation is pending',
   discussion_closed: 'Discussion has ended; cancellation is pending',
@@ -98,6 +100,7 @@ export function ParticipantQueue({
     );
   }
   function jobDetails(job: ActivityJob) {
+    const capacity = activity?.providerCapacity.find((entry) => entry.provider === job.provider);
     return (
       <>
         {source(job)}
@@ -106,6 +109,11 @@ export function ParticipantQueue({
             ? `${job.provider} / ${job.model}`
             : 'Recorded binding unavailable'}
         </small>
+        {capacity && (
+          <small>
+            {capacity.inUse} / {capacity.limit} provider slots occupied
+          </small>
+        )}
         <small>
           Queued {time(job.createdAt)}
           {job.startedAt ? ` · Started ${time(job.startedAt)}` : ''}
@@ -123,6 +131,9 @@ export function ParticipantQueue({
             <p className="queue-observation">
               Observed {time(activity.observedAt)} · {activity.capacity.inUse} /{' '}
               {activity.capacity.limit} shared slots occupied
+              {' · '}
+              {activity.workspaceCapacity.inUse} / {activity.workspaceCapacity.limit} workspace
+              slots occupied
             </p>
             {!connected && (
               <p className="queue-warning">

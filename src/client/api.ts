@@ -16,6 +16,7 @@ import type {
   BulkWorkspaceInput,
   BulkWorkspacePreview,
   BulkWorkspaceResult,
+  ProviderConcurrency,
 } from '../shared/contracts.js';
 
 let tokenPromise: Promise<string> | null = null;
@@ -89,9 +90,16 @@ export const api = {
   },
   settings: async (signal?: AbortSignal) =>
     (await request('/settings', { signal })).json() as Promise<AppSettings>,
-  saveSettings: async (input: AppSettings) =>
+  saveSettings: async (input: AppSettings) => {
+    // Conversation defaults can be dirty while another view edits provider limits.
+    const { providerConcurrency: _limits, ...defaults } = input;
+    return (
+      await request('/settings', { method: 'PUT', body: JSON.stringify(defaults) })
+    ).json() as Promise<AppSettings>;
+  },
+  saveProviderConcurrency: async (input: ProviderConcurrency) =>
     (
-      await request('/settings', { method: 'PUT', body: JSON.stringify(input) })
+      await request('/settings/provider-limits', { method: 'PUT', body: JSON.stringify(input) })
     ).json() as Promise<AppSettings>,
   configureWorkspace: async (id: string, input: WorkspaceSettingsInput) =>
     (

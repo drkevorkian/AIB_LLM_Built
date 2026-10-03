@@ -9,7 +9,6 @@ import {
   idSchema,
   connectionTestSchema,
   stopDiscussionSchema,
-  appSettingsSchema,
   agentLabel,
   bulkWorkspaceTokenSchema,
 } from '../shared/contracts.js';
@@ -121,7 +120,18 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         return;
       }
       if (url.pathname === '/api/settings' && req.method === 'PUT') {
-        json(res, 200, engine.saveSettings(appSettingsSchema.parse(await body(req))));
+        json(res, 200, engine.saveSettings(await body(req)));
+        return;
+      }
+      if (url.pathname === '/api/settings/provider-limits') {
+        if (req.method !== 'PUT') throw new AppError(405, 'Method not allowed.');
+        json(
+          res,
+          200,
+          engine.saveProviderConcurrency(
+            (await body(req)) as Parameters<typeof engine.saveProviderConcurrency>[0],
+          ),
+        );
         return;
       }
       if (url.pathname === '/api/providers' && req.method === 'GET') {
