@@ -24,6 +24,7 @@ const test = baseTest.extend<{ artifactService: Awaited<ReturnType<typeof isolat
       viewport: { width: 1440, height: 1000 },
     });
     try {
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
       await use(context);
     } finally {
       await context.close();
@@ -173,6 +174,9 @@ test('uploads retain exact downloadable bytes, safe text/ZIP/metadata previews a
       .getByRole('button', { name: 'Copy artifact text original.txt version 1', exact: true })
       .click();
     await expect(source.getByRole('status')).toContainText('Text copied.');
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(bytes.toString('utf8'));
     const promised = page.waitForEvent('download');
     await source.getByRole('button', { name: 'Download original version 1', exact: true }).click();
     const downloaded = await promised;

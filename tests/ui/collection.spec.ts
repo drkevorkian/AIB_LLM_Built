@@ -26,6 +26,8 @@ const test = baseTest.extend<{ collectionService: Awaited<ReturnType<typeof isol
   },
 });
 async function fixture(page: Page) {
+  let bId = '';
+  let cId = '';
   const calls: {
     response: ServerResponse;
     user: {
@@ -41,12 +43,17 @@ async function fixture(page: Page) {
     request.on('data', (chunk: Buffer) => chunks.push(chunk));
     request.on('end', () => {
       const payload = JSON.parse(Buffer.concat(chunks).toString());
-      const index = calls.length;
-      calls.push({
+      const system = payload.messages[0].content as string;
+      const index = system.includes(`participant ID is ${bId}.`)
+        ? 0
+        : system.includes(`participant ID is ${cId}.`)
+          ? 1
+          : calls.length;
+      calls[index] = {
         response,
         user: JSON.parse(payload.messages[1].content),
-        system: payload.messages[0].content,
-      });
+        system,
+      };
       response.setHeader('Content-Type', 'text/event-stream');
       response.write(
         `data: ${JSON.stringify({ id: 'fixture-' + index, choices: [{ delta: { content: index === 0 ? 'B: retain the design λ🙂.' : index === 1 ? 'C: replace the design. <img src=x onerror="window.collectionInjected=true">' : `SYNTHESIS ${index}: preserve both conflicting claims.` } }] })}\n\n`,
@@ -70,6 +77,8 @@ async function fixture(page: Page) {
   });
   expect(created.ok()).toBe(true);
   const room = (await created.json()) as Room;
+  bId = room.agents[1]!.id;
+  cId = room.agents[2]!.id;
   for (const agent of room.agents)
     expect(
       (
@@ -110,10 +119,10 @@ async function fixture(page: Page) {
     await page.getByLabel('Response deadline in seconds').fill('5');
     await page.getByLabel('Message', { exact: true }).fill('Compare the designs.');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect.poll(() => calls.length).toBe(2);
+    await expect.poll(() => calls.filter(Boolean).length).toBe(2);
   };
   const close = async () => {
-    for (const call of calls) call.response.end();
+    for (const call of calls.filter(Boolean)) call.response.end();
     server.closeAllConnections();
     await new Promise<void>((done, reject) =>
       server.close((error) => (error ? reject(error) : done())),
@@ -263,6 +272,15 @@ test('remaining-work cancellation after any closure preserves the partial messag
   const f = await fixture(page);
   try {
     await f.compose('any', 'pause', 'cancel');
+    await expect
+      .poll(async () => {
+        const current = await f.record();
+        return current.messages.find((message) => message.id === current.jobs[1]!.messageId)?.body;
+      })
+      .toContain('C: replace');
+    await expect(page.locator('.message.answer').filter({ hasText: 'C: replace' })).toContainText(
+      'streaming',
+    );
     await finish(page, f, 0);
     await expect.poll(() => f.calls.length).toBe(3);
     await finish(page, f, 2);
