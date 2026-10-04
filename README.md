@@ -2,7 +2,7 @@
 
 A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** Main is verified v0.20.0. The v0.21.0 development candidate adds reviewed context summaries, explicit original-source retrieval, model prompt budgets with visible omissions, and locally supplied context cursors; complete cross-platform/browser validation and publication are pending. The five original context-memory requirements remain open until that validation passes. Provider protocols and browser flows use controlled fixtures; credentialed accounts and installed models remain unverified. Releases remain 0.x until every original checklist requirement is implemented and validated.
+**Status:** v0.21.0 is validated across the six-job Linux/Windows/macOS matrix, including both Ubuntu Chromium suites. Reviewed summaries, exact original-source retrieval, visible model context budgets and local context cursors are implemented. Protocol and browser checks use controlled fixtures; credentialed accounts and installed models remain unverified. All 424 original checklist entries retain their text and order; 165 remain open. Releases stay 0.x until every original requirement is implemented and validated.
 
 ## Overview
 
@@ -25,16 +25,12 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
 
-## Development candidate: v0.21.0 context memory
+## Available in v0.21.0
 
 - Create human-reviewed summaries linked to completed messages and accepted coordinator decisions, with attributed source excerpts and explicit disagreement/open-question notes.
 - Retrieve/copy exact originals and explicitly include them in a new question when the review is insufficient, preserving original bodies and frozen workflow bindings.
 - Configure a reviewed context text budget for the participant model; inspect exact oldest-history omissions while retaining protected tasks, instructions, summaries and collected answers.
 - Inspect exact locally supplied context per participant/thread, without interpreting a delivery record as remote receipt or comprehension.
-
-See [v0.21.0 candidate notes](docs/releases/0.21.0.md) and [reviewed context memory contract](docs/architecture/0022-reviewed-context-memory.md). These original section 9 items stay unchecked until complete validation/publication.
-
-## Available in v0.20.0
 
 - Collect all, any, quorum, or a deadline-window minimum, and share no-reply updates without generation.
 - Choose cancel-and-pause, explicit continued waiting, or an explicitly incomplete timeout set; choose whether remaining recipients continue or are cancelled after closure.
@@ -79,7 +75,7 @@ See [v0.21.0 candidate notes](docs/releases/0.21.0.md) and [reviewed context mem
 
 New rooms start in simulation so launch does not invoke or bill a provider. Configure participants explicitly to use real models. Missing credentials or failed live requests produce visible failures; they never fall back to simulation.
 
-See [v0.20.0 release notes](docs/releases/0.20.0.md), [response collection contract](docs/architecture/0021-response-collection.md), [v0.19.0 release notes](docs/releases/0.19.0.md), [verification pipeline contract](docs/architecture/0020-verification-pipeline.md), [v0.18.0 release notes](docs/releases/0.18.0.md), [human interjection contract](docs/architecture/0019-human-interjections.md), [v0.17.0 release notes](docs/releases/0.17.0.md), [instruction provenance contract](docs/architecture/0018-instruction-provenance.md), [v0.16.0 release notes](docs/releases/0.16.0.md), [workspace instruction contract](docs/architecture/0017-workspace-instructions.md), [v0.15.0 release notes](docs/releases/0.15.0.md), [scoped concurrency contract](docs/architecture/0016-scoped-concurrency.md), [v0.14.0 release notes](docs/releases/0.14.0.md), [participant removal contract](docs/architecture/0015-participant-removal.md), [v0.13.0 release notes](docs/releases/0.13.0.md), [bulk workspace contract](docs/architecture/0014-bulk-workspaces.md), [v0.12.0 release notes](docs/releases/0.12.0.md), [code highlighting contract](docs/architecture/0013-code-highlighting.md), [v0.11.0 release notes](docs/releases/0.11.0.md), [footnote navigation contract](docs/architecture/0012-message-footnotes.md), [v0.10.0 release notes](docs/releases/0.10.0.md), [panel layout contract](docs/architecture/0011-panel-layout.md), [v0.9.0 release notes](docs/releases/0.9.0.md), [queue inspection contract](docs/architecture/0010-participant-queue-inspection.md), [v0.8.0 release notes](docs/releases/0.8.0.md), [coordinator testing contract](docs/architecture/0009-coordinator-capability-tests.md), [v0.7.0 release notes](docs/releases/0.7.0.md), [message presentation contract](docs/architecture/0008-message-presentation.md), [v0.6.0 release notes](docs/releases/0.6.0.md), [workspace organization contract](docs/architecture/0007-workspace-organization.md), [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
+See [v0.21.0 release notes](docs/releases/0.21.0.md), [reviewed context memory contract](docs/architecture/0022-reviewed-context-memory.md), [v0.20.0 release notes](docs/releases/0.20.0.md), [response collection contract](docs/architecture/0021-response-collection.md), [v0.19.0 release notes](docs/releases/0.19.0.md), [verification pipeline contract](docs/architecture/0020-verification-pipeline.md), [v0.18.0 release notes](docs/releases/0.18.0.md), [human interjection contract](docs/architecture/0019-human-interjections.md), [v0.17.0 release notes](docs/releases/0.17.0.md), [instruction provenance contract](docs/architecture/0018-instruction-provenance.md), [v0.16.0 release notes](docs/releases/0.16.0.md), [workspace instruction contract](docs/architecture/0017-workspace-instructions.md), [v0.15.0 release notes](docs/releases/0.15.0.md), [scoped concurrency contract](docs/architecture/0016-scoped-concurrency.md), [v0.14.0 release notes](docs/releases/0.14.0.md), [participant removal contract](docs/architecture/0015-participant-removal.md), [v0.13.0 release notes](docs/releases/0.13.0.md), [bulk workspace contract](docs/architecture/0014-bulk-workspaces.md), [v0.12.0 release notes](docs/releases/0.12.0.md), [code highlighting contract](docs/architecture/0013-code-highlighting.md), [v0.11.0 release notes](docs/releases/0.11.0.md), [footnote navigation contract](docs/architecture/0012-message-footnotes.md), [v0.10.0 release notes](docs/releases/0.10.0.md), [panel layout contract](docs/architecture/0011-panel-layout.md), [v0.9.0 release notes](docs/releases/0.9.0.md), [queue inspection contract](docs/architecture/0010-participant-queue-inspection.md), [v0.8.0 release notes](docs/releases/0.8.0.md), [coordinator testing contract](docs/architecture/0009-coordinator-capability-tests.md), [v0.7.0 release notes](docs/releases/0.7.0.md), [message presentation contract](docs/architecture/0008-message-presentation.md), [v0.6.0 release notes](docs/releases/0.6.0.md), [workspace organization contract](docs/architecture/0007-workspace-organization.md), [v0.5.0 release notes](docs/releases/0.5.0.md), [participant roster contract](docs/architecture/0006-participant-rosters.md), [v0.4.1 release notes](docs/releases/0.4.1.md), [v0.4.0 release notes](docs/releases/0.4.0.md), [settings/deletion contract](docs/architecture/0005-settings-and-deletion.md), [bounded-discussion contract](docs/architecture/0004-bounded-agent-discussions.md), [language decision](docs/architecture/0001-language-and-runtime.md), [workflow/recovery contract](docs/architecture/0002-workflow-and-recovery.md), and [live-provider contract](docs/architecture/0003-live-providers-and-relay.md).
 
 ![Agent discussion through configured local connections, using labeled HTTP protocol fixtures](docs/images/workspace.png)
 
@@ -683,11 +679,11 @@ This is the complete implementation checklist for the scope described above. Che
 - [x] Build immutable invocation snapshots with selected source versions.
 - [x] Include applicable human instructions and the correct participant revision.
 - [x] Include relevant thread history and unseen authorized room updates.
-- [ ] Implement per-agent context cursors without implying comprehension.
-- [ ] Apply model-specific context budgets and visible truncation rules.
-- [ ] Implement summaries linked to original messages and decisions.
-- [ ] Preserve disagreements and open questions during summarization.
-- [ ] Retrieve original source messages when summaries are insufficient.
+- [x] Implement per-agent context cursors without implying comprehension.
+- [x] Apply model-specific context budgets and visible truncation rules.
+- [x] Implement summaries linked to original messages and decisions.
+- [x] Preserve disagreements and open questions during summarization.
+- [x] Retrieve original source messages when summaries are insufficient.
 - [ ] Enforce access control before retrieval, summarization, and attachment expansion.
 - [x] Exclude sibling answers during independent first-response phases.
 - [x] Mark outputs generated against superseded instructions as stale.
