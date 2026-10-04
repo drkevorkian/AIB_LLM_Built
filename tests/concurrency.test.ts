@@ -198,7 +198,9 @@ test('provider limits span workspaces and endpoints while other provider kinds r
   const text = JSON.stringify(activity);
   assert.ok(!text.includes(f.room.id));
   assert.ok(!text.includes(f.room.agents[0]!.id));
-  assert.ok(!text.includes('9876'));
+  // A legitimate random UUID may contain the port digits; reject endpoint disclosure itself.
+  assert.ok(!text.includes('localhost:9876'));
+  assert.ok(!text.includes('"baseUrl":'));
   assert.ok(!text.includes('FOREIGN SECRET'));
 });
 

@@ -198,6 +198,8 @@ test('strict filenames, canonical base64, size and media validation reject befor
     'name ',
     'bad\nname',
     'bad\u202ename',
+    'bad\ud800.txt',
+    'bad\udfff.txt',
     'a'.repeat(121),
     '..',
   ]) {
@@ -615,7 +617,9 @@ test('HTTP artifact routes enforce local token/origin/method/scope and return in
   const base = `http://127.0.0.1:${service.port}`;
   const token = (await (await fetch(base + '/api/session')).json()).token as string;
   const headers = { 'X-AIB-Token': token, 'Content-Type': 'application/json' };
-  const raw = input(f, Buffer.from('<script>unsafe()</script> λ🙂\r\n'));
+  const raw = input(f, Buffer.from('<script>unsafe()</script> λ🙂\r\n'), {
+    filename: 'original-λ🙂.txt',
+  });
   assert.equal(
     (
       await fetch(base + `/api/rooms/${f.room.id}/artifacts`, {
@@ -647,6 +651,11 @@ test('HTTP artifact routes enforce local token/origin/method/scope and return in
   const download = await fetch(url + '/original', { headers });
   assert.equal(download.headers.get('content-type'), 'application/octet-stream');
   assert.match(download.headers.get('content-disposition')!, /^attachment;/);
+  assert.ok(
+    download.headers
+      .get('content-disposition')!
+      .includes("filename*=UTF-8''" + encodeURIComponent(raw.filename)),
+  );
   assert.equal(download.headers.get('x-content-type-options'), 'nosniff');
   assert.deepEqual(Buffer.from(await download.arrayBuffer()), Buffer.from(raw.base64, 'base64'));
   const preview = await (await fetch(url + '/preview', { headers })).json();

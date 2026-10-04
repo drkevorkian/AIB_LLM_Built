@@ -29,6 +29,7 @@ export function validateFilename(name: string): void {
       return (
         n < 32 ||
         (n >= 127 && n <= 159) ||
+        (n >= 0xd800 && n <= 0xdfff) ||
         (n >= 0x202a && n <= 0x202e) ||
         (n >= 0x2066 && n <= 0x2069)
       );
