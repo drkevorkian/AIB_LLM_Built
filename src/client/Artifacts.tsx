@@ -351,6 +351,7 @@ export function Artifacts({ room, onChanged }: { room: Room; onChanged: () => vo
             <label>
               Artifact format
               <select
+                aria-label="Artifact format"
                 value={mediaType}
                 onChange={(event) => {
                   const parsed = artifactMediaSchema.safeParse(event.target.value);
@@ -366,7 +367,11 @@ export function Artifacts({ room, onChanged }: { room: Room; onChanged: () => vo
             </label>
             <label>
               Artifact version target
-              <select value={artifactId} onChange={(event) => setArtifactId(event.target.value)}>
+              <select
+                aria-label="Artifact version target"
+                value={artifactId}
+                onChange={(event) => setArtifactId(event.target.value)}
+              >
                 <option value="">New artifact</option>
                 {latest.map((version) => (
                   <option key={version.artifactId} value={version.artifactId}>

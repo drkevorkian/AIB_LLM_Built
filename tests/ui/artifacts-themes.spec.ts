@@ -99,6 +99,10 @@ async function fixture(page: Page, native = false) {
       .getByLabel('Artifact file', { exact: true })
       .setInputFiles({ name, mimeType, buffer: bytes });
     await panel.getByLabel('Artifact version target', { exact: true }).selectOption(artifactId);
+    await expect(panel.getByLabel('Artifact version target', { exact: true })).toHaveValue(
+      artifactId,
+    );
+    await expect(panel.getByLabel('Artifact format', { exact: true })).toHaveValue(mimeType);
     await panel.getByRole('button', { name: 'Upload artifact version', exact: true }).click();
     await expect.poll(async () => (await record()).artifactVersions?.length ?? 0).toBe(before + 1);
     await expect(
