@@ -30,6 +30,9 @@ import type {
   ProviderKind,
   ProviderConcurrency,
   UpdatedSynthesisInput,
+  ContextSummaryInput,
+  ContextSummary,
+  SummaryOriginal,
 } from '../shared/contracts.js';
 import {
   agentActionSchema,
@@ -57,12 +60,19 @@ import {
   collectionTarget,
   collectionPending,
   collectionDeadlineActive,
+  contextSummarySchema,
 } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
 import { AgentActionError, ProviderError, ProviderRefusal } from './providers.js';
 import { RoomStore } from './store.js';
 import { inspectActivity } from './activity.js';
+import {
+  assertSummarySources,
+  fitContext,
+  selectSummaryContext,
+  summarySource,
+} from './context-memory.js';
 
 interface EngineOptions {
   now?: () => Date;
@@ -493,7 +503,13 @@ export class ConversationEngine extends EventEmitter {
         room.requests.filter((r) => r.threadId === threadId).map((r) => r.id),
       );
       const affectedSnapshots = new Set(
-        room.snapshots.filter((s) => s.messages.some((m) => messageIds.has(m.id))).map((s) => s.id),
+        room.snapshots
+          .filter(
+            (s) =>
+              s.messages.some((m) => messageIds.has(m.id)) ||
+              s.memory?.sources.some((source) => messageIds.has(source.id)),
+          )
+          .map((s) => s.id),
       );
       const affectedRequests = new Set(
         room.requests
@@ -558,11 +574,54 @@ export class ConversationEngine extends EventEmitter {
         ...room.jobs.map((j) => j.snapshotId),
       ]);
       room.snapshots = room.snapshots.filter((s) => referencedSnapshots.has(s.id));
+      for (const summary of room.contextSummaries ?? []) {
+        if (!summary.sources.some((source) => messageIds.has(source.id))) continue;
+        room.deletedClientIds.push(summary.clientId);
+        summary.title = 'Invalidated context summary';
+        summary.overview = '';
+        summary.disagreements = '';
+        summary.openQuestions = '';
+        summary.sources = [];
+        summary.retrievedSourceIds = [];
+        summary.invalidatedAt = this.timestamp();
+      }
+      room.contextCursors = (room.contextCursors ?? [])
+        .filter((cursor) => cursor.threadId !== threadId)
+        .map((cursor) => {
+          const removed = [...cursor.messageIds, ...cursor.summarySourceIds].filter((id) =>
+            messageIds.has(id),
+          );
+          if (!removed.length) return cursor;
+          return {
+            ...cursor,
+            messageIds: cursor.messageIds.filter((id) => !messageIds.has(id)),
+            summarySourceIds: cursor.summarySourceIds.filter((id) => !messageIds.has(id)),
+            retrievedSourceIds: cursor.retrievedSourceIds.filter((id) => !messageIds.has(id)),
+            deletedSourceIds: [...new Set([...(cursor.deletedSourceIds ?? []), ...removed])],
+          };
+        });
       for (const snapshot of room.snapshots) {
         const removed = snapshot.messages.filter((m) => messageIds.has(m.id));
-        if (!removed.length) continue;
+        const summaryRemoved =
+          snapshot.memory?.sources.filter((source) => messageIds.has(source.id)) ?? [];
+        if (!removed.length && !summaryRemoved.length) continue;
+        if (summaryRemoved.length)
+          snapshot.memory = {
+            ...snapshot.memory!,
+            title: 'Invalidated context summary',
+            overview: '',
+            disagreements: '',
+            openQuestions: '',
+            sources: [],
+            retrievedSourceIds: [],
+            invalidatedAt: this.timestamp(),
+          };
         snapshot.deletedMessageIds = [
-          ...new Set([...(snapshot.deletedMessageIds ?? []), ...removed.map((m) => m.id)]),
+          ...new Set([
+            ...(snapshot.deletedMessageIds ?? []),
+            ...removed.map((m) => m.id),
+            ...summaryRemoved.map((source) => source.id),
+          ]),
         ];
         snapshot.messages = snapshot.messages.filter((m) => !messageIds.has(m.id));
       }
@@ -598,8 +657,22 @@ export class ConversationEngine extends EventEmitter {
       if (isAgentRemoved(agent))
         throw new AppError(409, 'This participant was removed. Its retained history is read-only.');
       this.assertRosterEditable(room);
-      const next: Agent = { ...agent, ...input, configRevision: (agent.configRevision ?? 0) + 1 };
+      const { contextPolicy, ...settings } = input;
+      const next: Agent = {
+        ...agent,
+        ...settings,
+        ...(contextPolicy ? { contextPolicy } : {}),
+        configRevision: (agent.configRevision ?? 0) + 1,
+      };
       delete (next as Agent & { agentId?: string }).agentId;
+      if (
+        input.contextPolicy === null ||
+        (input.contextPolicy === undefined &&
+          (agent.provider !== input.provider ||
+            agent.model !== input.model ||
+            (agent.baseUrl ?? '') !== input.baseUrl))
+      )
+        delete next.contextPolicy;
       try {
         this.provider.validateAgent?.(next);
       } catch (error) {
@@ -609,6 +682,7 @@ export class ConversationEngine extends EventEmitter {
         );
       }
       Object.assign(agent, next);
+      if (!next.contextPolicy) delete agent.contextPolicy;
       this.recordAgent(room, agent);
       this.audit(
         room,
@@ -848,6 +922,7 @@ export class ConversationEngine extends EventEmitter {
     if (!input.relayOrder.length) delete (canonical as Partial<typeof input>).relayOrder;
     if (!input.discussion) delete (canonical as Partial<typeof input>).discussion;
     if (!input.interjection) delete (canonical as Partial<typeof input>).interjection;
+    if (!input.context) delete (canonical as Partial<typeof input>).context;
     // Keep previous UUID hashes valid when new optional controls use their legacy defaults.
     if (input.minimumAnswers === 1) delete (canonical as Partial<typeof input>).minimumAnswers;
     if (input.onTimeout === 'pause') delete (canonical as Partial<typeof input>).onTimeout;
@@ -864,6 +939,8 @@ export class ConversationEngine extends EventEmitter {
         'This message was deleted. Start a new message instead of replaying it.',
       );
     const previous = current.messages.find((m) => m.clientId === input.clientId);
+    if (current.contextSummaries?.some((summary) => summary.clientId === input.clientId))
+      throw new AppError(409, 'This command ID belongs to a context summary.');
     if (previous) {
       if (previous.commandHash !== commandHash)
         throw new AppError(409, 'Send ID already used for different content.');
@@ -882,6 +959,11 @@ export class ConversationEngine extends EventEmitter {
         throw new AppError(409, 'Resume this room before sending new messages.');
       if (new Set(input.recipientIds).size !== input.recipientIds.length)
         throw new AppError(400, 'Select each recipient once.');
+      if (input.context && input.type !== 'question')
+        throw new AppError(
+          400,
+          'Context summaries are selected only for questions and their frozen workflows.',
+        );
       const agentIds = new Set(room.agents.filter(isAgentActive).map((a) => a.id));
       if (input.recipientIds.some((id) => !agentIds.has(id)))
         throw new AppError(400, 'Unknown or inactive recipient.');
@@ -1025,7 +1107,40 @@ export class ConversationEngine extends EventEmitter {
             m.status === 'complete' &&
             (m.threadId === threadId || m.type === 'update' || m.type === 'interjection'),
         );
-        const snapshot = this.snapshot(room, relevant);
+        let context = relevant as ContextSnapshot['messages'];
+        let memory: ContextSnapshot['memory'];
+        if (input.context) {
+          const summary = room.contextSummaries?.find(
+            (record) => record.id === input.context!.summaryId,
+          );
+          if (!summary) throw new AppError(404, 'Context summary not found in this workspace.');
+          const retrieved = [...input.context.sourceIds];
+          if (
+            input.replyTo &&
+            summary.sources.some((source) => source.id === input.replyTo) &&
+            !retrieved.includes(input.replyTo)
+          )
+            retrieved.push(input.replyTo);
+          ({ messages: context, memory } = selectSummaryContext(
+            room,
+            summary,
+            relevant,
+            retrieved,
+          ));
+        }
+        const snapshot = this.snapshot(
+          room,
+          context,
+          memory
+            ? {
+                objective: room.objective,
+                humanInstructions: room.humanInstructions ?? '',
+                instructionRevision: room.instructionRevision ?? 0,
+                agents: room.agents.filter((agent) => !isAgentRemoved(agent)),
+                memory,
+              }
+            : undefined,
+        );
         room.snapshots.push(snapshot);
         message.snapshotId = snapshot.id;
         const request: Request = {
@@ -1246,8 +1361,13 @@ export class ConversationEngine extends EventEmitter {
         const included = request.includedMessageIds.map((id) =>
           room.messages.find((m) => m.id === id)!,
         );
-        const snapshot = this.snapshot(room, [...original.messages, ...included], binding);
+        const snapshot = this.snapshot(
+          room,
+          binding.delivery ? binding.messages : [...original.messages, ...included],
+          binding,
+        );
         if (binding.collection) snapshot.collection = structuredClone(binding.collection);
+        if (binding.delivery) snapshot.delivery = structuredClone(binding.delivery);
         room.snapshots.push(snapshot);
         room.jobs.push({
           ...this.job(request, previous.agentId, previous.kind, snapshot.id),
@@ -1279,6 +1399,93 @@ export class ConversationEngine extends EventEmitter {
       this.audit(room, 'job.retry', `Explicit retry of ${previous.id}; previous attempt retained.`);
     });
     this.changed(roomId);
+  }
+
+  createContextSummary(roomId: string, raw: ContextSummaryInput): ContextSummary {
+    const input = contextSummarySchema.parse(raw);
+    if (this.closed) throw new AppError(409, 'Service is shutting down.');
+    const commandHash = createHash('sha256')
+      .update(JSON.stringify({ contextSummary: input }))
+      .digest('hex');
+    const current = this.store.get(roomId);
+    this.assertWorkspaceOpen(current);
+    if (current.deletedClientIds?.includes(input.clientId))
+      throw new AppError(
+        409,
+        'This summary command refers to deleted sources. Create a new reviewed summary.',
+      );
+    const previous = current.contextSummaries?.find(
+      (summary) => summary.clientId === input.clientId,
+    );
+    if (previous) {
+      if (previous.commandHash !== commandHash)
+        throw new AppError(409, 'Summary command ID already used for different content.');
+      assertSummarySources(current, previous);
+      return previous;
+    }
+    if (current.messages.some((message) => message.clientId === input.clientId))
+      throw new AppError(409, 'This command ID belongs to a message.');
+    const result = this.store.mutate(roomId, (room) => {
+      this.assertWorkspaceOpen(room);
+      if (room.revision !== input.expectedRevision)
+        throw new AppError(
+          409,
+          'Workspace changed. Refresh and review the summary sources before saving.',
+        );
+      if (!room.threads.some((thread) => thread.id === input.threadId))
+        throw new AppError(404, 'Summary thread not found.');
+      if ((room.contextSummaries?.length ?? 0) >= 100)
+        throw new AppError(409, 'This workspace has reached its 100-summary retention limit.');
+      const sources = input.sourceIds
+        .map((id) => {
+          const message = room.messages.find((record) => record.id === id);
+          if (!message || message.threadId !== input.threadId || message.status !== 'complete')
+            throw new AppError(
+              400,
+              'Select only completed original messages in the reviewed thread.',
+            );
+          return summarySource(room, message);
+        })
+        .sort((a, b) => a.sequence - b.sequence);
+      const summary: ContextSummary = {
+        id: this.id(),
+        clientId: input.clientId,
+        commandHash,
+        title: input.title,
+        threadId: input.threadId,
+        overview: input.overview,
+        disagreements: input.disagreements,
+        openQuestions: input.openQuestions,
+        sources,
+        retrievedSourceIds: [],
+        createdAt: this.timestamp(),
+      };
+      if (JSON.stringify(summary).length > 64000)
+        throw new AppError(
+          413,
+          'This reviewed summary exceeds the 64,000-character record limit. Select fewer sources.',
+        );
+      (room.contextSummaries ??= []).push(summary);
+      this.audit(
+        room,
+        'context.summary.created',
+        `Human-reviewed summary ${summary.id} retains ${sources.length} source links, disagreement and open-question notes. No provider was invoked.`,
+      );
+      return summary;
+    });
+    this.changed(roomId);
+    return result;
+  }
+
+  contextSummarySource(roomId: string, summaryId: string, messageId: string): SummaryOriginal {
+    const room = this.store.get(roomId);
+    const summary = room.contextSummaries?.find((record) => record.id === summaryId);
+    if (!summary) throw new AppError(404, 'Context summary not found in this workspace.');
+    const source = summary.sources.find((record) => record.id === messageId);
+    if (!source) throw new AppError(404, 'Source does not belong to this summary.');
+    assertSummarySources(room, summary);
+    const original = room.messages.find((message) => message.id === source.id)!;
+    return { ...structuredClone(source), summaryId, body: original.body };
   }
 
   updatedSynthesis(roomId: string, raw: UpdatedSynthesisInput): SendResult {
@@ -1523,28 +1730,6 @@ export class ConversationEngine extends EventEmitter {
               ? discussion.messageId
               : (relay?.messageId ?? request.messageId)),
       )!.body;
-      job.status = 'running';
-      job.startedAt = this.timestamp();
-      job.attemptId = this.id();
-      job.messageId = this.id();
-      room.turnsUsed += 1;
-      if (discussion) discussion.turnsUsed += 1;
-      room.messages.push({
-        id: job.messageId,
-        sequence: this.nextSequence(room),
-        threadId: request.threadId,
-        authorId: job.agentId,
-        recipientIds:
-          discussion && job.kind === 'answer' ? [discussion.leaderId, 'human'] : ['human'],
-        visibility: 'room',
-        type: job.kind === 'decision' ? 'answer' : job.kind,
-        body: '',
-        status: 'streaming',
-        replyTo: request.messageId,
-        requestId: request.id,
-        snapshotId: snapshot.id,
-        createdAt: this.timestamp(),
-      });
       const sourceRequest = request.sourceRequestId
         ? room.requests.find((r) => r.id === request.sourceRequestId)
         : null;
@@ -1593,13 +1778,92 @@ export class ConversationEngine extends EventEmitter {
                 turnsRemaining:
                   discussion.maxTurns -
                   discussion.turnsUsed -
-                  room.jobs.filter((j) => j.discussionId === discussion.id && j.status === 'queued')
-                    .length,
+                  1 -
+                  room.jobs.filter(
+                    (j) =>
+                      j.id !== job.id && j.discussionId === discussion.id && j.status === 'queued',
+                  ).length,
                 ...(job.repairReason ? { repairReason: job.repairReason } : {}),
               },
             }
           : {}),
       };
+      const protectedIds = new Set([
+        request.messageId,
+        room.messages.find((message) => message.id === request.messageId)?.replyTo ?? '',
+        request.synthesisRevisionOf
+          ? room.requests.find((source) => source.id === request.sourceRequestId)!.messageId
+          : (discussion?.messageId ?? relay?.messageId ?? request.messageId),
+        ...includedIds,
+        ...(snapshot.memory?.retrievedSourceIds ?? []),
+      ]);
+      try {
+        const fitted = fitContext(input, protectedIds);
+        if (fitted !== snapshot) {
+          fitted.id = this.id();
+          fitted.createdAt = this.timestamp();
+          room.snapshots.push(fitted);
+          job.snapshotId = fitted.id;
+          input.snapshot = fitted;
+        }
+      } catch (error) {
+        if (!(error instanceof AppError) || error.status !== 413) throw error;
+        job.status = 'failed';
+        job.error = error.message;
+        job.endedAt = this.timestamp();
+        this.collect(room, request.id);
+        this.audit(
+          room,
+          'context.budget.blocked',
+          `Job ${job.id} exceeded its frozen model prompt budget before invocation.`,
+        );
+        input = null;
+        return;
+      }
+      job.status = 'running';
+      job.startedAt = this.timestamp();
+      job.attemptId = this.id();
+      job.messageId = this.id();
+      room.turnsUsed += 1;
+      if (discussion) discussion.turnsUsed += 1;
+      room.messages.push({
+        id: job.messageId,
+        sequence: this.nextSequence(room),
+        threadId: request.threadId,
+        authorId: job.agentId,
+        recipientIds:
+          discussion && job.kind === 'answer' ? [discussion.leaderId, 'human'] : ['human'],
+        visibility: 'room',
+        type: job.kind === 'decision' ? 'answer' : job.kind,
+        body: '',
+        status: 'streaming',
+        replyTo: request.messageId,
+        requestId: request.id,
+        snapshotId: input.snapshot.id,
+        createdAt: this.timestamp(),
+      });
+      const deliveryNumber = (room.contextDeliveryNumber ?? 0) + 1;
+      room.contextDeliveryNumber = deliveryNumber;
+      room.contextCursors = [
+        ...(room.contextCursors ?? []).filter(
+          (cursor) => cursor.agentId !== agent.id || cursor.threadId !== request.threadId,
+        ),
+        {
+          agentId: agent.id,
+          threadId: request.threadId,
+          deliveryNumber,
+          jobId: job.id,
+          snapshotId: input.snapshot.id,
+          provider: agent.provider,
+          model: agent.model,
+          sourceSequence: input.snapshot.sequence,
+          messageIds: input.snapshot.messages.map((message) => message.id),
+          summarySourceIds: input.snapshot.memory?.sources.map((source) => source.id) ?? [],
+          retrievedSourceIds: input.snapshot.memory?.retrievedSourceIds ?? [],
+          omittedMessageIds: input.snapshot.delivery?.omittedMessageIds ?? [],
+          preparedAt: job.startedAt!,
+        },
+      ];
       claimedAgentId = agent.id;
     });
     if (!input) {
@@ -1920,7 +2184,7 @@ export class ConversationEngine extends EventEmitter {
       );
       return;
     }
-    const original = room.snapshots.find((s) => s.id === job.snapshotId)!;
+    const original = room.snapshots.find((s) => s.id === request.snapshotId)!;
     let snapshot: ContextSnapshot;
     try {
       snapshot = this.snapshot(room, [...original.messages, message], original);
@@ -2274,7 +2538,7 @@ export class ConversationEngine extends EventEmitter {
     messages: ContextSnapshot['messages'],
     original?: Pick<
       ContextSnapshot,
-      'objective' | 'agents' | 'humanInstructions' | 'instructionRevision'
+      'objective' | 'agents' | 'humanInstructions' | 'instructionRevision' | 'memory'
     >,
   ): ContextSnapshot {
     const binding = original ?? {
@@ -2286,7 +2550,9 @@ export class ConversationEngine extends EventEmitter {
     if (
       messages.reduce(
         (n, m) => n + m.body.length,
-        binding.objective.length + (binding.humanInstructions?.length ?? 0),
+        binding.objective.length +
+          (binding.humanInstructions?.length ?? 0) +
+          ('memory' in binding && binding.memory ? JSON.stringify(binding.memory).length : 0),
       ) > 64000
     )
       throw new AppError(
@@ -2304,6 +2570,7 @@ export class ConversationEngine extends EventEmitter {
         ? { instructionRevision: binding.instructionRevision }
         : {}),
       agents: structuredClone(binding.agents),
+      ...('memory' in binding && binding.memory ? { memory: structuredClone(binding.memory) } : {}),
       messages: messages.map(({ id, authorId, type, body, authorName }) => {
         const source = room.messages.find((m) => m.id === id);
         return {

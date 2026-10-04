@@ -2,6 +2,8 @@
 
 Status: Accepted; updated for v0.3.0 bounded discussions. See [ADR 0004](0004-bounded-agent-discussions.md).
 
+v0.21.0 extends context assembly with explicit human-reviewed summaries, original-source retrieval, optional frozen model text budgets and local delivery cursors under [ADR 0022](0022-reviewed-context-memory.md). The legacy/default 64,000-character atomic rejection remains; opt-in delivery omissions are visible and retain protected sources, submitted bindings and sibling isolation.
+
 ## Implemented flow
 
 1. Validate the human command, recipients, exact reply target, policy, and turn reservation.

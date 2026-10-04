@@ -23,6 +23,13 @@ import { InstructionNotice } from './InstructionNotice.js';
 import { ResponseSet, FrozenCollection } from './ResponseCollection.js';
 import { InterjectionNotice } from './InterjectionNotice.js';
 import {
+  ContextSummaries,
+  ContextCursors,
+  FrozenSummary,
+  FrozenBudget,
+  SummaryChoice,
+} from './ContextMemory.js';
+import {
   invocationInstructionProvenance,
   messageInstructionProvenance,
   instructionProvenanceLabel,
@@ -848,6 +855,14 @@ export function App() {
               Jump to latest ↓
             </button>
           )}
+          {room && (
+            <ContextSummaries
+              key={`summaries-${room.id}`}
+              room={room}
+              threadId={threadId}
+              onChanged={() => setTick((value) => value + 1)}
+            />
+          )}
           {room && defaults && (
             <Composer
               key={room.id}
@@ -1375,6 +1390,7 @@ function AgentCard({
         </span>
       </div>
       <p>{agent.role}</p>
+      <ContextCursors room={room} agentId={agent.id} />
       <button className="configure-agent" onClick={onConfigure}>
         Configure {nameOf(room, agent.id)}
       </button>
@@ -1437,6 +1453,9 @@ function Composer({
 }) {
   const activeAgents = room.agents.filter(isAgentActive);
   const [body, setBody] = useState('');
+  const [contextChoice, setContextChoice] = useState<NonNullable<SendInput['context']> | null>(
+    null,
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [recipients, setRecipients] = useState(() =>
     (activeAgents.length > 1 ? activeAgents.slice(1) : activeAgents).map((a) => a.id),
@@ -1512,7 +1531,12 @@ function Composer({
   const invalidRouting =
     ((type === 'question' || type === 'interjection') && !recipients.length) ||
     (type === 'relay' && !relayOrder.length) ||
-    (type === 'discussion' && !leaderId);
+    (type === 'discussion' && !leaderId) ||
+    ((type === 'question' || type === 'relay' || type === 'discussion') &&
+      contextChoice !== null &&
+      !room.contextSummaries?.some(
+        (summary) => summary.id === contextChoice.summaryId && !summary.invalidatedAt,
+      ));
   async function send(event: FormEvent) {
     event.preventDefault();
     if (
@@ -1562,6 +1586,9 @@ function Composer({
           type === 'interjection'
             ? { priority: interjectionPriority, dispatchPolicy: interjectionDispatch }
             : null,
+        ...((type === 'question' || type === 'relay' || type === 'discussion') && contextChoice
+          ? { context: contextChoice }
+          : {}),
       });
       setBody('');
       setRosterChanged(false);
@@ -1597,6 +1624,17 @@ function Composer({
               <Glyph kind="close" size={14} />
             </button>
           </div>
+        )}
+        {(type === 'question' || type === 'relay' || type === 'discussion') && (
+          <SummaryChoice
+            room={room}
+            value={contextChoice}
+            disabled={sending || refreshing}
+            onChange={(choice) => {
+              setContextChoice(choice);
+              clientId.current = null;
+            }}
+          />
         )}
         {type !== 'relay' && type !== 'discussion' && (
           <div className="recipient-row">
@@ -2671,6 +2709,8 @@ function Snapshot({ snapshot, room }: { snapshot: ContextSnapshot; room: Room })
       {snapshot.collection && (
         <FrozenCollection collection={snapshot.collection} room={room} snapshotId={snapshot.id} />
       )}
+      {snapshot.memory && <FrozenSummary memory={snapshot.memory} roomId={room.id} />}
+      {snapshot.delivery && <FrozenBudget delivery={snapshot.delivery} />}
       <details>
         <summary>Participant roles at invocation</summary>
         {snapshot.agents.map((a) => (

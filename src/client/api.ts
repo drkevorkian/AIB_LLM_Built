@@ -18,6 +18,9 @@ import type {
   BulkWorkspaceResult,
   ProviderConcurrency,
   UpdatedSynthesisInput,
+  ContextSummaryInput,
+  ContextSummary,
+  SummaryOriginal,
 } from '../shared/contracts.js';
 
 let tokenPromise: Promise<string> | null = null;
@@ -67,6 +70,20 @@ async function request(path: string, options: RequestInit = {}, retry = true): P
 }
 
 export const api = {
+  createContextSummary: async (id: string, input: ContextSummaryInput) =>
+    (
+      await request(`/rooms/${id}/context-summaries`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(15000),
+      })
+    ).json() as Promise<ContextSummary>,
+  summarySource: async (id: string, summaryId: string, sourceId: string) =>
+    (
+      await request(`/rooms/${id}/context-summaries/${summaryId}/sources/${sourceId}`, {
+        signal: AbortSignal.timeout(5000),
+      })
+    ).json() as Promise<SummaryOriginal>,
   previewWorkspaces: async (input: BulkWorkspaceInput, signal?: AbortSignal) =>
     (
       await request('/workspaces/bulk/preview', {

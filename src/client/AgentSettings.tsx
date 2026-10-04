@@ -27,6 +27,7 @@ export function AgentSettings({
     baseUrl: agent.baseUrl ?? '',
     maxOutputTokens: agent.maxOutputTokens ?? 4096,
     timeoutSeconds: agent.timeoutSeconds ?? 180,
+    contextPolicy: agent.contextPolicy ?? null,
   });
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [models, setModels] = useState<string[]>([]);
@@ -116,6 +117,7 @@ export function AgentSettings({
                   provider,
                   model: provider === 'simulated' ? 'simulation-v1' : '',
                   baseUrl: provider === 'ollama' ? 'http://127.0.0.1:11434' : '',
+                  contextPolicy: null,
                 });
                 setModels([]);
               }}
@@ -150,7 +152,7 @@ export function AgentSettings({
                   ? 'http://127.0.0.1:11434'
                   : 'https://your-server.example/v1'
               }
-              onChange={(e) => update({ baseUrl: e.target.value })}
+              onChange={(e) => update({ baseUrl: e.target.value, contextPolicy: null })}
             />
           </label>
         )}
@@ -162,7 +164,7 @@ export function AgentSettings({
             maxLength={200}
             value={value.model}
             placeholder="Exact text-generation model ID from your provider"
-            onChange={(e) => update({ model: e.target.value })}
+            onChange={(e) => update({ model: e.target.value, contextPolicy: null })}
           />
           <datalist id={`models-${agent.id}`}>
             {models.map((id) => (
@@ -210,6 +212,67 @@ export function AgentSettings({
             />
           </label>
         </div>
+        <label className="context-check">
+          <input
+            type="checkbox"
+            checked={Boolean(value.contextPolicy)}
+            onChange={(e) =>
+              update({
+                contextPolicy: e.target.checked
+                  ? { maxCharacters: 64000, overflow: 'reject' }
+                  : null,
+              })
+            }
+          />
+          Use a reviewed context budget for this model
+        </label>
+        {value.contextPolicy && (
+          <div className="settings-grid">
+            <label>
+              Model context text budget (characters)
+              <input
+                required
+                type="number"
+                min={4096}
+                max={262144}
+                value={value.contextPolicy.maxCharacters}
+                onChange={(e) =>
+                  update({
+                    contextPolicy: {
+                      ...value.contextPolicy!,
+                      maxCharacters: Number(e.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
+            <label>
+              Context overflow rule
+              <select
+                value={value.contextPolicy.overflow}
+                onChange={(e) =>
+                  update({
+                    contextPolicy: {
+                      ...value.contextPolicy!,
+                      overflow: e.target.value as 'reject' | 'trim_oldest',
+                    },
+                  })
+                }
+              >
+                <option value="reject">Reject the invocation</option>
+                <option value="trim_oldest">Omit oldest unprotected history</option>
+              </select>
+            </label>
+          </div>
+        )}
+        <p className="muted">
+          Budget for {value.provider} / {value.model || 'the selected model'}: exact application
+          prompt characters, including instructions and data. Review the provider's native
+          input/output token limits separately; this is not a token-window guarantee. Changing
+          provider or model clears this reviewed policy. Omissions are recorded; protected sources
+          cannot be trimmed. Without this policy the existing 64,000-character snapshot limit
+          applies.
+        </p>
         {provider?.keyEnvironment && (
           <p className="credential-status">
             {value.provider === 'openai-compatible'

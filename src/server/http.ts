@@ -255,12 +255,36 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         }
         throw new AppError(405, 'Method not supported.');
       }
+      const summarySource =
+        /^\/api\/rooms\/([a-zA-Z0-9_-]+)\/context-summaries\/([a-zA-Z0-9_-]+)\/sources\/([a-zA-Z0-9_-]+)$/.exec(
+          url.pathname,
+        );
+      if (summarySource) {
+        if (req.method !== 'GET') throw new AppError(405, 'Method not supported.');
+        json(
+          res,
+          200,
+          engine.contextSummarySource(summarySource[1]!, summarySource[2]!, summarySource[3]!),
+        );
+        return;
+      }
       const match =
-        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|updated-synthesis|export|agents|connection-test|discussion-stop|settings|archive|activity))?$/.exec(
+        /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|updated-synthesis|context-summaries|export|agents|connection-test|discussion-stop|settings|archive|activity))?$/.exec(
           url.pathname,
         );
       if (!match) throw new AppError(404, 'Endpoint not found.');
       const roomId = idSchema.parse(match[1]);
+      if (match[2] === 'context-summaries' && req.method === 'POST') {
+        json(
+          res,
+          201,
+          engine.createContextSummary(
+            roomId,
+            (await body(req)) as Parameters<typeof engine.createContextSummary>[1],
+          ),
+        );
+        return;
+      }
       if (match[2] === 'activity' && req.method === 'GET') {
         json(res, 200, engine.activity(roomId));
         return;
@@ -346,6 +370,20 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         parts.push(
           `\n## Workspace instruction revisions\n\n\`\`\`json\n${JSON.stringify(workspaceInstructionHistory(room), null, 2)}\n\`\`\`\n`,
         );
+        if (room.contextSummaries?.length)
+          parts.push(
+            `\n## Human-reviewed context summaries\n\nOriginal messages below remain authoritative. Summaries retain attributed excerpts, original decision links, disagreement and open-question notes; truncated excerpts are incomplete.\n\n\`\`\`json\n${JSON.stringify(
+              room.contextSummaries.map(
+                ({ clientId: _id, commandHash: _hash, ...summary }) => summary,
+              ),
+              null,
+              2,
+            )}\n\`\`\`\n`,
+          );
+        if (room.contextCursors?.length)
+          parts.push(
+            `\n## Locally supplied context cursors\n\nThese records show application-prepared invocation context, not remote receipt or comprehension.\n\n\`\`\`json\n${JSON.stringify(room.contextCursors, null, 2)}\n\`\`\`\n`,
+          );
         if (room.archivedAt)
           parts.push(
             `\nWorkspace archived: ${room.archivedAt}. Restore and resume explicitly to run work.\n`,
@@ -376,6 +414,12 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
             instructions +
             instructionStatus +
             interjection +
+            (snapshot?.memory
+              ? `\n\nFrozen context summary: ${JSON.stringify(snapshot.memory)}.`
+              : '') +
+            (snapshot?.delivery
+              ? `\n\nFrozen model context budget: ${JSON.stringify(snapshot.delivery)}. Character counts cover the application system/user strings, not provider tokenization or protocol overhead.`
+              : '') +
             (snapshot?.collection
               ? `\n\nFrozen collection: ${JSON.stringify(snapshot.collection)}. Disagreement policy: preserve and identify conflicting claims; no semantic agreement is inferred.`
               : '') +

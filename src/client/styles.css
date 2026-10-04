@@ -2264,3 +2264,88 @@ progress::-moz-progress-bar {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+
+.context-memory-panel,
+.context-cursors,
+.summary-choice,
+.context-summary,
+.summary-source {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.context-memory-panel {
+  padding: 6px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.context-memory-content {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-block: 8px;
+}
+.context-memory-content details,
+.summary-choice details {
+  margin-block: 8px;
+}
+.context-check {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
+.context-check input[type='checkbox'] {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+.summary-form fieldset {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.summary-source-selection {
+  max-height: 180px;
+  overflow-y: auto;
+}
+.source-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.summary-source,
+.context-cursors > div {
+  padding-block: 8px;
+  border-top: 1px solid var(--border);
+}
+.context-summary pre,
+.context-cursors pre,
+.summary-source pre {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.context-summary small,
+.summary-source small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.summary-choice label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.summary-choice .context-check {
+  flex-direction: row;
+}
+.summary-choice {
+  padding-block: 6px;
+}
+.room-form .context-check {
+  flex-direction: row;
+}
+.summary-choice select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}

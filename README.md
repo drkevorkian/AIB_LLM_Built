@@ -2,7 +2,7 @@
 
 A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** v0.20.0 adds deadline-based response collection, explicit wait/pause/incomplete timeout outcomes, remaining-recipient cancellation, frozen synthesis collection facts, and separate updated syntheses for eligible late answers. Directed, parallel, fixed relay, bounded coordinator discussion, persistent history, Settings, participant/workspace management, safe message presentation, and cross-platform verification remain available. Provider protocols and browser flows use controlled fixtures; credentialed cloud accounts and installed local models remain unverified. Signed-in website transport, attachments, broader recovery, and the remaining checklist are planned. Releases remain 0.x until every original checklist item is implemented and validated.
+**Status:** Main is verified v0.20.0. The v0.21.0 development candidate adds reviewed context summaries, explicit original-source retrieval, model prompt budgets with visible omissions, and locally supplied context cursors; complete cross-platform/browser validation and publication are pending. The five original context-memory requirements remain open until that validation passes. Provider protocols and browser flows use controlled fixtures; credentialed accounts and installed models remain unverified. Releases remain 0.x until every original checklist requirement is implemented and validated.
 
 ## Overview
 
@@ -24,6 +24,15 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Resume interrupted work without silently duplicating requests or losing state.
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
+
+## Development candidate: v0.21.0 context memory
+
+- Create human-reviewed summaries linked to completed messages and accepted coordinator decisions, with attributed source excerpts and explicit disagreement/open-question notes.
+- Retrieve/copy exact originals and explicitly include them in a new question when the review is insufficient, preserving original bodies and frozen workflow bindings.
+- Configure a reviewed context text budget for the participant model; inspect exact oldest-history omissions while retaining protected tasks, instructions, summaries and collected answers.
+- Inspect exact locally supplied context per participant/thread, without interpreting a delivery record as remote receipt or comprehension.
+
+See [v0.21.0 candidate notes](docs/releases/0.21.0.md) and [reviewed context memory contract](docs/architecture/0022-reviewed-context-memory.md). These original section 9 items stay unchecked until complete validation/publication.
 
 ## Available in v0.20.0
 

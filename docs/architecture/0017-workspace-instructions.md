@@ -2,6 +2,8 @@
 
 Status: accepted for v0.16.0
 
+v0.21.0 extends context assembly with explicit human-reviewed summaries, original-source retrieval, optional frozen model text budgets and local delivery cursors under [ADR 0022](0022-reviewed-context-memory.md). The legacy/default 64,000-character atomic rejection remains; opt-in delivery omissions are visible and retain protected sources, submitted bindings and sibling isolation.
+
 ## Decision
 
 A workspace owns a shared objective and human instruction text. Creation records revision zero with the creation time. A successful objective or instruction change appends one full revision in the same SQLite transaction as the current settings and audit event. Instructions preserve exact whitespace and Unicode, are bounded to 3,000 JavaScript string characters, and can be cleared. Name, turn-limit, and request-limit edits alone do not advance the instruction revision. History belongs to the workspace; thread deletion retains it, and whole-workspace deletion removes it.

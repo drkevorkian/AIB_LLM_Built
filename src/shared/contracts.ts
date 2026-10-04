@@ -13,6 +13,11 @@ export const providerSchema = z.enum([
   'ollama',
   'openai-compatible',
 ]);
+export const contextPolicySchema = z.strictObject({
+  maxCharacters: z.number().int().min(4096).max(262144),
+  overflow: z.enum(['reject', 'trim_oldest']),
+});
+export type ContextPolicy = z.infer<typeof contextPolicySchema>;
 export const agentSettingsSchema = z.strictObject({
   agentId: idSchema,
   name: z.string().trim().min(1).max(60),
@@ -27,6 +32,8 @@ export const agentSettingsSchema = z.strictObject({
   baseUrl: z.string().trim().max(2000).default(''),
   maxOutputTokens: z.number().int().min(128).max(16384).default(4096),
   timeoutSeconds: z.number().int().min(5).max(600).default(180),
+  /** Omission preserves a same-model policy; null explicitly returns to legacy limits. */
+  contextPolicy: contextPolicySchema.nullable().optional(),
 });
 export const connectionTestSchema = z.strictObject({
   agentId: idSchema,
@@ -176,7 +183,43 @@ export const sendSchema = z.strictObject({
     })
     .nullable()
     .default(null),
+  context: z
+    .strictObject({
+      summaryId: idSchema,
+      sourceIds: z
+        .array(idSchema)
+        .max(50)
+        .refine((ids) => new Set(ids).size === ids.length),
+    })
+    .optional(),
 });
+export const contextSummarySchema = z.strictObject({
+  clientId: z.string().uuid(),
+  expectedRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  threadId: idSchema,
+  sourceIds: z
+    .array(idSchema)
+    .min(1)
+    .max(50)
+    .refine((ids) => new Set(ids).size === ids.length),
+  title: z.string().trim().min(1).max(100),
+  overview: z
+    .string()
+    .min(1)
+    .max(4000)
+    .refine((value) => Boolean(value.trim())),
+  disagreements: z
+    .string()
+    .min(1)
+    .max(3000)
+    .refine((value) => Boolean(value.trim())),
+  openQuestions: z
+    .string()
+    .min(1)
+    .max(3000)
+    .refine((value) => Boolean(value.trim())),
+});
+export type ContextSummaryInput = z.infer<typeof contextSummarySchema>;
 export const agentActionSchema = z.strictObject({
   kind: z.enum(['ask', 'finish']),
   body: z.string().trim().min(1).max(20000),
@@ -226,6 +269,7 @@ export interface Agent {
   baseUrl?: string;
   maxOutputTokens?: number;
   timeoutSeconds?: number;
+  contextPolicy?: ContextPolicy;
   configRevision?: number;
   /** Legacy participants are active when this field is absent. */
   active?: boolean;
@@ -289,6 +333,64 @@ export interface ContextSnapshot {
   deletedMessageIds?: string[];
   /** Application-owned facts frozen with a synthesis; late results cannot rewrite them. */
   collection?: CollectionContext;
+  memory?: SummaryContext;
+  delivery?: ContextDelivery;
+}
+export interface SummarySource {
+  id: string;
+  authorId: string;
+  authorName: string;
+  sequence: number;
+  type: Message['type'];
+  sha256: string;
+  excerpt: string;
+  truncated: boolean;
+  decision?: Omit<AgentAction, 'body'>;
+}
+export interface SummaryContext {
+  id: string;
+  title: string;
+  threadId: string;
+  overview: string;
+  disagreements: string;
+  openQuestions: string;
+  sources: SummarySource[];
+  retrievedSourceIds: string[];
+  createdAt: string;
+  invalidatedAt?: string;
+}
+export interface ContextSummary extends SummaryContext {
+  clientId: string;
+  commandHash: string;
+}
+export interface ContextDelivery {
+  agentId: string;
+  provider: ProviderKind;
+  model: string;
+  maxCharacters: number;
+  measuredCharacters: number;
+  overflow: ContextPolicy['overflow'];
+  omittedMessageIds: string[];
+}
+export interface ContextCursor {
+  agentId: string;
+  threadId: string;
+  deliveryNumber: number;
+  jobId: string;
+  snapshotId: string;
+  provider: ProviderKind;
+  model: string;
+  sourceSequence: number;
+  messageIds: string[];
+  summarySourceIds: string[];
+  retrievedSourceIds: string[];
+  omittedMessageIds: string[];
+  preparedAt: string;
+  deletedSourceIds?: string[];
+}
+export interface SummaryOriginal extends SummarySource {
+  summaryId: string;
+  body: string;
 }
 export interface CollectionContext {
   requestId: string;
@@ -408,6 +510,9 @@ export interface Room {
   deletedClientIds?: string[];
   agents: Agent[];
   agentRevisions?: AgentRevision[];
+  contextSummaries?: ContextSummary[];
+  contextCursors?: ContextCursor[];
+  contextDeliveryNumber?: number;
   threads: Thread[];
   messages: Message[];
   requests: Request[];
