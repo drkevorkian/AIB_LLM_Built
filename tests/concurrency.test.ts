@@ -131,7 +131,7 @@ test('legacy settings and workspace payloads default to four; omitted fields pre
     assert.equal(engine.settings().defaultMaxTurns, 42);
     assert.equal(store.get(room.id).maxConcurrentRequests, 2);
     const check = new DatabaseSync(path);
-    assert.equal(check.prepare('PRAGMA user_version').get()!.user_version, 2);
+    assert.equal(check.prepare('PRAGMA user_version').get()!.user_version, 3);
     assert.equal(store.get(room.id).schemaVersion, 1);
     check.close();
   } finally {

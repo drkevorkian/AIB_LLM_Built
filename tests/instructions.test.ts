@@ -476,7 +476,7 @@ test('legacy current settings recover with unknown time; old snapshots stay unkn
     assert.equal(saved.snapshots[0]!.humanInstructions, undefined);
     assert.equal(saved.snapshots[0]!.instructionRevision, undefined);
     const check = new DatabaseSync(path);
-    assert.equal(check.prepare('PRAGMA user_version').get()!.user_version, 2);
+    assert.equal(check.prepare('PRAGMA user_version').get()!.user_version, 3);
     check.close();
     assert.equal(saved.schemaVersion, 1);
   } finally {

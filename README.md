@@ -2,7 +2,7 @@
 
 A local workspace where independent LLM agents answer directed or parallel requests, exchange responses through relays, and coordinate bounded discussions under human control.
 
-**Status:** v0.21.0 is validated across the six-job Linux/Windows/macOS matrix, including both Ubuntu Chromium suites. Reviewed summaries, exact original-source retrieval, visible model context budgets and local context cursors are implemented. Protocol and browser checks use controlled fixtures; credentialed accounts and installed models remain unverified. All 424 original checklist entries retain their text and order; 165 remain open. Releases stay 0.x until every original requirement is implemented and validated.
+**Status:** Main is verified v0.21.0. The v0.22.0 candidate adds Ghost White/Blizzard Blue opposite themes and immutable workspace artifacts with bounded validation, safe previews, explicit text grants and frozen version references. Local checks/build/audits pass; full cross-platform and browser CI is pending. All 424 original checklist entries retain their text and order; 165 remain open until validation. Releases stay 0.x until every original requirement, including optional work, is implemented and validated.
 
 ## Overview
 
@@ -24,6 +24,15 @@ You can ask two agents for independent opinions, wait for both, send their answe
 - Resume interrupted work without silently duplicating requests or losing state.
 - Keep the conversation engine independent of provider APIs and browser interfaces.
 - Make the application understandable through a complete graphical interface.
+
+## Development candidate: v0.22.0 artifacts and opposite themes
+
+- Choose Ghost White: Ghost White (`#F8F8FF`) surfaces, black text and Blizzard Blue (`#ACE5EE`) lines; or its Blizzard Blue opposite: black surfaces, Blizzard Blue text and Ghost White lines. Settings exposes both, and the header toggles within the selected opposite pair. Dark/Light remains available.
+- Upload bounded original files with immutable raw-byte SHA-256, workspace-scoped identities and retained version metadata. New versions append without overwriting originals.
+- Review escaped full/visibly bounded text, checked ZIP manifests or image/PDF/binary metadata, with authenticated explicit downloads of exact original bytes. No file is extracted, executed or remotely loaded.
+- Explicitly grant up to four supported full UTF-8 text versions to a question. Inspect the human references and exact frozen context; retries, synthesis revisions and relay/discussion continuations keep those original versions. Uploads and previews invoke no provider.
+
+See [v0.22.0 candidate notes](docs/releases/0.22.0.md) and [artifact/theme contract](docs/architecture/0023-versioned-artifacts-and-opposite-themes.md). The five original section 13 entries remain unchecked until complete CI. Native binary provider integration, artifact manifest export, competing revision handling and execution remain separate unfinished requirements.
 
 ## Available in v0.21.0
 

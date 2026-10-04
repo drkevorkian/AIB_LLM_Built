@@ -33,6 +33,10 @@ import type {
   ContextSummaryInput,
   ContextSummary,
   SummaryOriginal,
+  ArtifactUploadInput,
+  ArtifactVersion,
+  ArtifactPreview,
+  ArtifactContext,
 } from '../shared/contracts.js';
 import {
   agentActionSchema,
@@ -61,12 +65,14 @@ import {
   collectionPending,
   collectionDeadlineActive,
   contextSummarySchema,
+  artifactUploadSchema,
 } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { ProviderAdapter, ProviderInput } from './providers.js';
 import { AgentActionError, ProviderError, ProviderRefusal } from './providers.js';
 import { RoomStore } from './store.js';
 import { inspectActivity } from './activity.js';
+import { artifactHash, decodeArtifact, inspectArtifact, artifactReference } from './artifacts.js';
 import {
   assertSummarySources,
   fitContext,
@@ -507,7 +513,8 @@ export class ConversationEngine extends EventEmitter {
           .filter(
             (s) =>
               s.messages.some((m) => messageIds.has(m.id)) ||
-              s.memory?.sources.some((source) => messageIds.has(source.id)),
+              s.memory?.sources.some((source) => messageIds.has(source.id)) ||
+              s.artifacts?.some((artifact) => messageIds.has(artifact.sourceMessageId)),
           )
           .map((s) => s.id),
       );
@@ -604,7 +611,9 @@ export class ConversationEngine extends EventEmitter {
         const removed = snapshot.messages.filter((m) => messageIds.has(m.id));
         const summaryRemoved =
           snapshot.memory?.sources.filter((source) => messageIds.has(source.id)) ?? [];
-        if (!removed.length && !summaryRemoved.length) continue;
+        const artifactRemoved =
+          snapshot.artifacts?.filter((artifact) => messageIds.has(artifact.sourceMessageId)) ?? [];
+        if (!removed.length && !summaryRemoved.length && !artifactRemoved.length) continue;
         if (summaryRemoved.length)
           snapshot.memory = {
             ...snapshot.memory!,
@@ -621,9 +630,14 @@ export class ConversationEngine extends EventEmitter {
             ...(snapshot.deletedMessageIds ?? []),
             ...removed.map((m) => m.id),
             ...summaryRemoved.map((source) => source.id),
+            ...artifactRemoved.map((artifact) => artifact.sourceMessageId),
           ]),
         ];
         snapshot.messages = snapshot.messages.filter((m) => !messageIds.has(m.id));
+        if (artifactRemoved.length)
+          snapshot.artifacts = snapshot.artifacts!.filter(
+            (artifact) => !messageIds.has(artifact.sourceMessageId),
+          );
       }
       this.audit(
         room,
@@ -923,6 +937,8 @@ export class ConversationEngine extends EventEmitter {
     if (!input.discussion) delete (canonical as Partial<typeof input>).discussion;
     if (!input.interjection) delete (canonical as Partial<typeof input>).interjection;
     if (!input.context) delete (canonical as Partial<typeof input>).context;
+    if (!input.artifactVersionIds?.length)
+      delete (canonical as Partial<typeof input>).artifactVersionIds;
     // Keep previous UUID hashes valid when new optional controls use their legacy defaults.
     if (input.minimumAnswers === 1) delete (canonical as Partial<typeof input>).minimumAnswers;
     if (input.onTimeout === 'pause') delete (canonical as Partial<typeof input>).onTimeout;
@@ -939,6 +955,8 @@ export class ConversationEngine extends EventEmitter {
         'This message was deleted. Start a new message instead of replaying it.',
       );
     const previous = current.messages.find((m) => m.clientId === input.clientId);
+    if (current.artifactVersions?.some((version) => version.clientId === input.clientId))
+      throw new AppError(409, 'This command ID belongs to an artifact upload.');
     if (current.contextSummaries?.some((summary) => summary.clientId === input.clientId))
       throw new AppError(409, 'This command ID belongs to a context summary.');
     if (previous) {
@@ -1092,6 +1110,29 @@ export class ConversationEngine extends EventEmitter {
           : {}),
       };
       room.messages.push(message);
+      let artifacts: ArtifactContext[] | undefined;
+      if (input.artifactVersionIds?.length) {
+        if (input.type !== 'question')
+          throw new AppError(400, 'Only a human question can grant artifact inclusion.');
+        artifacts = input.artifactVersionIds.map((versionId) => {
+          const { reference, bytes } = this.readArtifact(room, versionId);
+          const inspected = inspectArtifact(reference.mediaType, reference.filename, bytes);
+          if (inspected.kind !== 'text')
+            throw new AppError(
+              415,
+              'Only explicitly selected UTF-8 text artifacts can enter provider requests.',
+            );
+          if (inspected.text!.length > 16000)
+            throw new AppError(
+              413,
+              'A selected artifact must fit 16,000 full text characters; no artifact was truncated.',
+            );
+          return { ...reference, sourceMessageId: message.id, text: inspected.text! };
+        });
+        message.artifactReferences = artifacts.map(
+          ({ sourceMessageId: _source, text: _text, ...reference }) => reference,
+        );
+      }
       if (input.interjection) {
         if (input.interjection.dispatchPolicy === 'pause') room.status = 'paused';
         this.audit(
@@ -1131,13 +1172,14 @@ export class ConversationEngine extends EventEmitter {
         const snapshot = this.snapshot(
           room,
           context,
-          memory
+          memory || artifacts
             ? {
                 objective: room.objective,
                 humanInstructions: room.humanInstructions ?? '',
                 instructionRevision: room.instructionRevision ?? 0,
                 agents: room.agents.filter((agent) => !isAgentRemoved(agent)),
-                memory,
+                ...(memory ? { memory } : {}),
+                ...(artifacts ? { artifacts } : {}),
               }
             : undefined,
         );
@@ -1295,6 +1337,10 @@ export class ConversationEngine extends EventEmitter {
       if (!previous || !['failed', 'interrupted'].includes(previous.status))
         throw new AppError(400, 'Only failed or interrupted work can be retried.');
       const request = room.requests.find((r) => r.id === previous.requestId)!;
+      this.assertArtifactContext(
+        room,
+        room.snapshots.find((snapshot) => snapshot.id === previous.snapshotId)!,
+      );
       const workflowIds = new Set([
         previous.agentId,
         ...request.recipientIds,
@@ -1401,6 +1447,151 @@ export class ConversationEngine extends EventEmitter {
     this.changed(roomId);
   }
 
+  uploadArtifact(roomId: string, raw: ArtifactUploadInput): ArtifactVersion {
+    const input = artifactUploadSchema.parse(raw);
+    if (this.closed) throw new AppError(409, 'Service is shutting down.');
+    const current = this.store.get(roomId);
+    this.assertWorkspaceOpen(current);
+    const bytes = decodeArtifact(input.base64);
+    const inspected = inspectArtifact(input.mediaType, input.filename, bytes);
+    const { base64: _base64, ...command } = input;
+    const sha256 = artifactHash(bytes);
+    const commandHash = createHash('sha256')
+      .update(JSON.stringify({ artifact: command, sha256 }))
+      .digest('hex');
+    const previous = current.artifactVersions?.find(
+      (version) => version.clientId === input.clientId,
+    );
+    if (previous) {
+      if (previous.commandHash !== commandHash)
+        throw new AppError(409, 'Artifact upload ID already used for different content.');
+      this.readArtifact(current, previous.versionId);
+      return previous;
+    }
+    if (
+      current.messages.some((message) => message.clientId === input.clientId) ||
+      current.contextSummaries?.some((summary) => summary.clientId === input.clientId) ||
+      current.deletedClientIds?.includes(input.clientId)
+    )
+      throw new AppError(409, 'This command ID belongs to other retained or deleted work.');
+    const result = this.store.mutate(roomId, (room) => {
+      this.assertWorkspaceOpen(room);
+      if (room.revision !== input.expectedRevision)
+        throw new AppError(
+          409,
+          'Workspace changed. Refresh and review artifacts before uploading.',
+        );
+      const versions = (room.artifactVersions ??= []);
+      if (
+        versions.length >= 40 ||
+        versions.reduce((total, version) => total + version.byteSize, 0) + bytes.length >
+          8 * 1024 * 1024
+      )
+        throw new AppError(
+          413,
+          'Workspace artifacts are limited to 40 versions and 8 MiB of original bytes.',
+        );
+      if (input.artifactId && !versions.some((version) => version.artifactId === input.artifactId))
+        throw new AppError(404, 'Artifact not found in this workspace.');
+      const artifactId = input.artifactId ?? this.id();
+      const versionId = this.id();
+      if (
+        artifactId === versionId ||
+        versions.some(
+          (version) =>
+            version.versionId === versionId ||
+            (!input.artifactId && version.artifactId === artifactId),
+        )
+      )
+        throw new AppError(409, 'Artifact identity collision. Start a fresh upload review.');
+      const version: ArtifactVersion = {
+        artifactId,
+        versionId,
+        version: versions.filter((version) => version.artifactId === artifactId).length + 1,
+        filename: input.filename,
+        mediaType: input.mediaType,
+        byteSize: bytes.length,
+        sha256,
+        createdAt: this.timestamp(),
+        previewKind: inspected.kind,
+        ...(inspected.text !== undefined ? { textCharacters: inspected.text.length } : {}),
+        clientId: input.clientId,
+        commandHash,
+      };
+      this.store.putArtifactBytes(roomId, versionId, bytes);
+      versions.push(version);
+      this.audit(
+        room,
+        'artifact.uploaded',
+        `Artifact ${artifactId}, version ${version.version}, source ${versionId}, ${bytes.length} original bytes. No provider was invoked.`,
+      );
+      return version;
+    });
+    this.changed(roomId);
+    return result;
+  }
+
+  artifactOriginal(roomId: string, versionId: string) {
+    return this.readArtifact(this.store.get(roomId), versionId);
+  }
+
+  artifactPreview(roomId: string, versionId: string): ArtifactPreview {
+    const { reference, bytes } = this.artifactOriginal(roomId, versionId);
+    const inspected = inspectArtifact(reference.mediaType, reference.filename, bytes);
+    let text = inspected.text?.slice(0, 16000);
+    if (
+      text &&
+      text.charCodeAt(text.length - 1) >= 0xd800 &&
+      text.charCodeAt(text.length - 1) <= 0xdbff
+    )
+      text = text.slice(0, -1);
+    return {
+      reference,
+      ...(text !== undefined ? { text } : {}),
+      ...(inspected.entries ? { entries: inspected.entries } : {}),
+      truncated: (inspected.text?.length ?? 0) > (text?.length ?? 0),
+    };
+  }
+
+  private readArtifact(room: Room, versionId: string) {
+    const version = room.artifactVersions?.find((version) => version.versionId === versionId);
+    if (!version) throw new AppError(404, 'Artifact version not found in this workspace.');
+    const bytes = this.store.artifactBytes(room.id, versionId);
+    if (bytes.length !== version.byteSize || artifactHash(bytes) !== version.sha256)
+      throw new AppError(409, 'Original artifact bytes failed integrity verification.');
+    const inspected = inspectArtifact(version.mediaType, version.filename, bytes);
+    if (inspected.kind !== version.previewKind || inspected.text?.length !== version.textCharacters)
+      throw new AppError(409, 'Artifact metadata failed integrity verification.');
+    return { reference: artifactReference(version), bytes };
+  }
+
+  private assertArtifactContext(room: Room, snapshot: ContextSnapshot): void {
+    for (const selected of snapshot.artifacts ?? []) {
+      const { reference, bytes } = this.readArtifact(room, selected.versionId);
+      const source = room.messages.find(
+        (message) => message.id === selected.sourceMessageId && message.authorId === 'human',
+      );
+      const grant = source?.artifactReferences?.find(
+        (version) => version.versionId === selected.versionId,
+      );
+      const inspected = inspectArtifact(reference.mediaType, reference.filename, bytes);
+      if (
+        !grant ||
+        inspected.kind !== 'text' ||
+        selected.text !== inspected.text ||
+        Object.entries(reference).some(
+          ([key, value]) =>
+            selected[key as keyof ArtifactContext] !== value ||
+            grant[key as keyof typeof grant] !== value,
+        )
+      )
+        throw new AppError(
+          409,
+          'Frozen artifact context or its original human grant is unavailable or inconsistent.',
+        );
+    }
+  }
+
   createContextSummary(roomId: string, raw: ContextSummaryInput): ContextSummary {
     const input = contextSummarySchema.parse(raw);
     if (this.closed) throw new AppError(409, 'Service is shutting down.');
@@ -1409,6 +1600,8 @@ export class ConversationEngine extends EventEmitter {
       .digest('hex');
     const current = this.store.get(roomId);
     this.assertWorkspaceOpen(current);
+    if (current.artifactVersions?.some((version) => version.clientId === input.clientId))
+      throw new AppError(409, 'This command ID belongs to an artifact upload.');
     if (current.deletedClientIds?.includes(input.clientId))
       throw new AppError(
         409,
@@ -1797,7 +1990,10 @@ export class ConversationEngine extends EventEmitter {
         ...includedIds,
         ...(snapshot.memory?.retrievedSourceIds ?? []),
       ]);
+      let artifactContextValidated = false;
       try {
+        this.assertArtifactContext(room, snapshot);
+        artifactContextValidated = true;
         const fitted = fitContext(input, protectedIds);
         if (fitted !== snapshot) {
           fitted.id = this.id();
@@ -1807,15 +2003,17 @@ export class ConversationEngine extends EventEmitter {
           input.snapshot = fitted;
         }
       } catch (error) {
-        if (!(error instanceof AppError) || error.status !== 413) throw error;
+        if (!(error instanceof AppError)) throw error;
         job.status = 'failed';
         job.error = error.message;
         job.endedAt = this.timestamp();
         this.collect(room, request.id);
         this.audit(
           room,
-          'context.budget.blocked',
-          `Job ${job.id} exceeded its frozen model prompt budget before invocation.`,
+          artifactContextValidated ? 'context.budget.blocked' : 'artifact.context.blocked',
+          artifactContextValidated
+            ? `Job ${job.id} exceeded its frozen model prompt budget before invocation.`
+            : `Job ${job.id} could not validate its frozen artifact grant before invocation.`,
         );
         input = null;
         return;
@@ -2538,7 +2736,7 @@ export class ConversationEngine extends EventEmitter {
     messages: ContextSnapshot['messages'],
     original?: Pick<
       ContextSnapshot,
-      'objective' | 'agents' | 'humanInstructions' | 'instructionRevision' | 'memory'
+      'objective' | 'agents' | 'humanInstructions' | 'instructionRevision' | 'memory' | 'artifacts'
     >,
   ): ContextSnapshot {
     const binding = original ?? {
@@ -2552,7 +2750,10 @@ export class ConversationEngine extends EventEmitter {
         (n, m) => n + m.body.length,
         binding.objective.length +
           (binding.humanInstructions?.length ?? 0) +
-          ('memory' in binding && binding.memory ? JSON.stringify(binding.memory).length : 0),
+          ('memory' in binding && binding.memory ? JSON.stringify(binding.memory).length : 0) +
+          ('artifacts' in binding && binding.artifacts
+            ? JSON.stringify(binding.artifacts).length
+            : 0),
       ) > 64000
     )
       throw new AppError(
@@ -2571,6 +2772,9 @@ export class ConversationEngine extends EventEmitter {
         : {}),
       agents: structuredClone(binding.agents),
       ...('memory' in binding && binding.memory ? { memory: structuredClone(binding.memory) } : {}),
+      ...('artifacts' in binding && binding.artifacts
+        ? { artifacts: structuredClone(binding.artifacts) }
+        : {}),
       messages: messages.map(({ id, authorId, type, body, authorName }) => {
         const source = room.messages.find((m) => m.id === id);
         return {

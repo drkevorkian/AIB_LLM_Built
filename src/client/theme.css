@@ -50,3 +50,97 @@
   --red-dim: #b044490c;
   --red-line: #b0444950;
 }
+:root[data-theme='ghost-white'] {
+  color-scheme: light;
+  --bg: #f8f8ff;
+  --panel: #f8f8ff;
+  --inset: #f8f8ff;
+  --hover: #eaf6fa;
+  --line: #ace5ee;
+  --text: #000000;
+  --body-text: #000000;
+  --muted: #000000;
+  --subtle: #000000;
+  --teal: #000000;
+  --on-teal: #000000;
+  --teal-hover: #c5eef4;
+  --teal-dim: #ace5ee14;
+  --teal-line: #ace5ee;
+  --amber: #000000;
+  --amber-dim: #ace5ee14;
+  --amber-line: #ace5ee;
+  --violet: #000000;
+  --violet-dim: #ace5ee14;
+  --violet-line: #ace5ee;
+  --red: #000000;
+  --red-dim: #ace5ee14;
+  --red-line: #ace5ee;
+}
+:root[data-theme='ghost-white'] .primary {
+  background: #ace5ee;
+  color: #000000;
+  border-color: #ace5ee;
+}
+:root[data-theme='ghost-white'] .primary:hover:not(:disabled) {
+  background: #c5eef4;
+  color: #000000;
+  border-color: #ace5ee;
+}
+:root[data-theme='ghost-white'] button:hover,
+:root[data-theme='ghost-white'] input:focus,
+:root[data-theme='ghost-white'] textarea:focus,
+:root[data-theme='ghost-white'] select:focus {
+  border-color: #ace5ee;
+}
+:root[data-theme='ghost-white'] :focus-visible,
+:root[data-theme='blizzard-blue'] :focus-visible {
+  outline-color: var(--line);
+}
+:root[data-theme='ghost-white'] .reply-indicator,
+:root[data-theme='ghost-white'] .discussion-status,
+:root[data-theme='blizzard-blue'] .reply-indicator,
+:root[data-theme='blizzard-blue'] .discussion-status {
+  border-left-color: var(--line);
+}
+:root[data-theme='blizzard-blue'] .primary {
+  background: #000000;
+  color: #ace5ee;
+  border-color: #f8f8ff;
+}
+:root[data-theme='blizzard-blue'] .primary:hover:not(:disabled) {
+  background: #101c20;
+  color: #ace5ee;
+  border-color: #f8f8ff;
+}
+:root[data-theme='blizzard-blue'] button:hover,
+:root[data-theme='blizzard-blue'] input:focus,
+:root[data-theme='blizzard-blue'] textarea:focus,
+:root[data-theme='blizzard-blue'] select:focus {
+  border-color: #f8f8ff;
+}
+:root[data-theme='blizzard-blue'] {
+  color-scheme: dark;
+  --bg: #000000;
+  --panel: #000000;
+  --inset: #000000;
+  --hover: #101c20;
+  --line: #f8f8ff;
+  --text: #ace5ee;
+  --body-text: #ace5ee;
+  --muted: #ace5ee;
+  --subtle: #ace5ee;
+  --teal: #ace5ee;
+  --on-teal: #000000;
+  --teal-hover: #c5eef4;
+  --teal-dim: #ace5ee10;
+  --teal-line: #f8f8ff;
+  --amber: #ace5ee;
+  --amber-dim: #ace5ee10;
+  --amber-line: #f8f8ff;
+  --violet: #ace5ee;
+  --violet-dim: #ace5ee10;
+  --violet-line: #f8f8ff;
+  --red: #ace5ee;
+  --red-dim: #ace5ee10;
+  --red-line: #f8f8ff;
+}

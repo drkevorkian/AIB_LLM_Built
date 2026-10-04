@@ -1,6 +1,6 @@
 # LLM Recovery Prompt
 
-Updated: 2026-10-04 (UTC). Current verified application checkpoint: v0.21.0. Five original context-memory items are complete; 165 of 424 original requirements remain open.
+Updated: 2026-10-04 (UTC). Current verified main checkpoint: v0.21.0. The v0.22.0 artifact/opposite-theme candidate is implemented and awaiting complete CI; its five original requirements remain unchecked, with 165 of 424 open.
 
 This file is a durable handoff for a new chat or another LLM. Paste the whole file when repository access is unavailable, or use the launch prompt below when the receiving LLM can read GitHub. The current repository is authoritative if it has advanced beyond this checkpoint.
 
@@ -18,6 +18,14 @@ You are resuming an existing working application, not starting a new framework. 
 The goal is a local graphical workspace in which independent LLM identities can receive directed questions, answer parallel requests, exchange messages in selected relay orders, and conduct bounded coordinator discussions under human control. Visibility, recipients required to answer, and scheduling are separate concepts. Preserve separate attributable answers, original disagreements, stable identities, explicit reply links, and frozen context.
 
 The chosen stack is TypeScript with a React/Vite client, a Node.js server, and SQLite persistence. Keep the existing architecture. Node 26.10 support, a Settings page, and workspace/thread deletion are explicit user requirements and already implemented.
+
+## Current candidate: v0.22.0 artifacts and opposite themes
+
+The latest user explicitly requests the Ghost White/Blizzard Blue opposite theme pair and then continuation from the checkpoint. Both are implemented alongside the next five original section 13 artifact requirements: upload/original bytes/hash/version metadata; size/media/filename/archive bounds; safe previews linked to originals; authorized reads/provider inclusion; exact message/snapshot version references. These five entries stay unchecked until all six CI jobs and both Ubuntu browser suites pass. Never change the original 424 checklist texts/order or the version 1 gate.
+
+The candidate preserves private dependencies and runtime ranges, advances only the package/application label to 0.22.0, and migrates SQLite additively to user_version 3 for transactional workspace-owned original BLOBs. Full UTF-8 text selections require explicit human grants; native binary inclusion stays unsupported. Read ADR 0023, the candidate release notes, tests/artifacts.test.ts and tests/ui/artifacts-themes.spec.ts. They specify complete limits, safe previews/downloads, ZIP restrictions, CAS/UUID/lost-response behavior, deletion and original frozen retry/workflow bindings. No real data or provider credentials are used.
+
+Local Node 24.19.0 lint/types/402 source tests/format/build and full/production audits passed (zero vulnerabilities). There are 85 discovered browser tests; discovery is not execution. The existing local Chromium executable is truncated and previously known unusable: do not launch, reinstall or download it repeatedly. The authorized GitHub candidate branch will carry the exact complete source tree and six-job CI; read GitHub for observed SHA/tree/run before promoting. The previous verified checkpoint below remains valid until that succeeds. Connection recovery remains limited to two short attempts; no stalls occurred in this candidate work.
 
 ## Saved checkpoint
 

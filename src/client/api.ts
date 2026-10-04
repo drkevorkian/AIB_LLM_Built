@@ -21,6 +21,9 @@ import type {
   ContextSummaryInput,
   ContextSummary,
   SummaryOriginal,
+  ArtifactUploadInput,
+  ArtifactVersion,
+  ArtifactPreview,
 } from '../shared/contracts.js';
 
 let tokenPromise: Promise<string> | null = null;
@@ -70,6 +73,26 @@ async function request(path: string, options: RequestInit = {}, retry = true): P
 }
 
 export const api = {
+  uploadArtifact: async (id: string, input: ArtifactUploadInput) =>
+    (
+      await request(`/rooms/${id}/artifacts`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(15000),
+      })
+    ).json() as Promise<ArtifactVersion>,
+  artifactPreview: async (id: string, versionId: string) =>
+    (
+      await request(`/rooms/${id}/artifacts/${versionId}/preview`, {
+        signal: AbortSignal.timeout(5000),
+      })
+    ).json() as Promise<ArtifactPreview>,
+  artifactOriginal: async (id: string, versionId: string) =>
+    (
+      await request(`/rooms/${id}/artifacts/${versionId}/original`, {
+        signal: AbortSignal.timeout(5000),
+      })
+    ).blob(),
   createContextSummary: async (id: string, input: ContextSummaryInput) =>
     (
       await request(`/rooms/${id}/context-summaries`, {

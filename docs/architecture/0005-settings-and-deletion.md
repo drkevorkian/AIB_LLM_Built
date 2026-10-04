@@ -12,6 +12,8 @@ The v0.4 client calls each room a workspace. The existing room identity, isolate
 
 The SQLite database migrates additively from `user_version = 1` to `2`. A singleton settings table stores validated preferences and a one-time welcome initialization flag, separately from room documents. Room `schemaVersion` remains `1`; newly added room/snapshot fields are optional for compatibility. A newer database version is rejected, and the writer lease still prevents concurrent service processes.
 
+In v0.22.0, [ADR 0023](0023-versioned-artifacts-and-opposite-themes.md) extends this migration to SQLite `user_version = 3` with a private artifact BLOB table. Original bytes and room metadata commit together; foreign-key cascades remove bytes with whole-workspace/bulk deletion. Thread deletion removes message grants and copied context while retaining independently owned workspace originals. Theme preferences now include the opposite Ghost White/Blizzard Blue pair alongside Dark/Light.
+
 ## Workspace deletion
 
 `DELETE /api/rooms/:roomId` requires the same session token, loopback Host, and Origin checks as other commands. The UI names the target and requires explicit confirmation. Cancel performs no mutation. Deleting commits the row removal before aborting active requests/probes, releases dispatch capacity, and broadcasts a change event. Provider events check their abort signal before accessing storage. A deleted workspace returns 404 on subsequent reads, export, sends, or retry commands; it is never recreated by stream completion.

@@ -16,6 +16,7 @@ import type {
 import { api, ApiError, watch } from './api.js';
 import { AgentSettings } from './AgentSettings.js';
 import { SettingsPage } from './SettingsPage.js';
+import { Artifacts, ArtifactChoice, ArtifactSource, FrozenArtifacts } from './Artifacts.js';
 import { searchWorkspaces, searchThreads, type WorkspaceView } from './search.js';
 import { CopyButton } from './CopyButton.js';
 import { MessageText } from './MessageText.js';
@@ -37,6 +38,7 @@ import {
 import { ParticipantQueue, useRoomActivity } from './ParticipantQueue.js';
 import { usePanelLayout } from './PanelLayout.js';
 import { applicationVersion } from '../shared/version.js';
+import { readTheme, oppositeTheme, themeLabel, type Theme } from './themes.js';
 import {
   agentAtSnapshot,
   agentLabel,
@@ -150,9 +152,7 @@ export function App() {
   const [reply, setReply] = useState<Message | null>(null);
   const [inspect, setInspect] = useState<Message | null>(null);
   const [settings, setSettings] = useState<Agent | null>(null);
-  const [theme, setTheme] = useState<'dark' | 'light'>(() =>
-    localStorage.getItem('aib-theme') === 'light' ? 'light' : 'dark',
-  );
+  const [theme, setTheme] = useState<Theme>(readTheme);
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
@@ -264,7 +264,13 @@ export function App() {
   }, [room, threadId, reply, inspect, settings]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem('aib-theme', theme);
+    try {
+      localStorage.setItem('aib-theme', theme);
+    } catch {
+      setError(
+        'Theme changed for this view. Browser storage is unavailable, so it may not survive reload.',
+      );
+    }
   }, [theme]);
   useEffect(() => {
     if (settingsPage) history.replaceState(null, '', '#settings');
@@ -400,10 +406,10 @@ export function App() {
           </button>
           <button
             className="quiet compact"
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            onClick={() => setTheme(oppositeTheme(theme))}
             aria-label="Toggle theme"
           >
-            {theme === 'dark' ? 'Light' : 'Dark'}
+            {themeLabel(oppositeTheme(theme))}
           </button>
         </div>
       </header>
@@ -864,6 +870,13 @@ export function App() {
             />
           )}
           {room && defaults && (
+            <Artifacts
+              key={`artifacts-${room.id}`}
+              room={room}
+              onChanged={() => setTick((value) => value + 1)}
+            />
+          )}
+          {room && defaults && (
             <Composer
               key={room.id}
               room={room}
@@ -1196,6 +1209,14 @@ function MessageCard({
         </div>
         <InstructionNotice provenance={instructionProvenance} />
         <InterjectionNotice message={m} />
+        {!!m.artifactReferences?.length && (
+          <details className="message-artifacts">
+            <summary>Human-granted artifact versions · {m.artifactReferences.length}</summary>
+            {m.artifactReferences.map((reference) => (
+              <ArtifactSource key={reference.versionId} roomId={room.id} reference={reference} />
+            ))}
+          </details>
+        )}
         <MessageText
           text={m.body}
           source={source}
@@ -1456,6 +1477,7 @@ function Composer({
   const [contextChoice, setContextChoice] = useState<NonNullable<SendInput['context']> | null>(
     null,
   );
+  const [artifactSelection, setArtifactSelection] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [recipients, setRecipients] = useState(() =>
     (activeAgents.length > 1 ? activeAgents.slice(1) : activeAgents).map((a) => a.id),
@@ -1529,6 +1551,10 @@ function Composer({
   );
   const synthesisCandidate = synthesizer ?? activeAgents.find((a) => !recipients.includes(a.id));
   const invalidRouting =
+    ((type === 'question' || type === 'relay' || type === 'discussion') &&
+      artifactSelection.some(
+        (id) => !room.artifactVersions?.some((version) => version.versionId === id),
+      )) ||
     ((type === 'question' || type === 'interjection') && !recipients.length) ||
     (type === 'relay' && !relayOrder.length) ||
     (type === 'discussion' && !leaderId) ||
@@ -1589,8 +1615,13 @@ function Composer({
         ...((type === 'question' || type === 'relay' || type === 'discussion') && contextChoice
           ? { context: contextChoice }
           : {}),
+        ...((type === 'question' || type === 'relay' || type === 'discussion') &&
+        artifactSelection.length
+          ? { artifactVersionIds: artifactSelection }
+          : {}),
       });
       setBody('');
+      setArtifactSelection([]);
       setRosterChanged(false);
       clientId.current = null;
       setRefreshing(true);
@@ -1632,6 +1663,24 @@ function Composer({
             disabled={sending || refreshing}
             onChange={(choice) => {
               setContextChoice(choice);
+              clientId.current = null;
+            }}
+          />
+        )}
+        {(type === 'question' || type === 'relay' || type === 'discussion') && (
+          <ArtifactChoice
+            room={room}
+            recipientIds={
+              type === 'relay'
+                ? relayOrder
+                : type === 'discussion'
+                  ? activeAgents.map((agent) => agent.id)
+                  : [...recipients, ...(synthesis && synthesizer ? [synthesizer.id] : [])]
+            }
+            selected={artifactSelection}
+            disabled={sending || refreshing}
+            onChange={(ids) => {
+              setArtifactSelection(ids);
               clientId.current = null;
             }}
           />
@@ -2711,6 +2760,9 @@ function Snapshot({ snapshot, room }: { snapshot: ContextSnapshot; room: Room })
       )}
       {snapshot.memory && <FrozenSummary memory={snapshot.memory} roomId={room.id} />}
       {snapshot.delivery && <FrozenBudget delivery={snapshot.delivery} />}
+      {!!snapshot.artifacts?.length && (
+        <FrozenArtifacts artifacts={snapshot.artifacts} roomId={room.id} />
+      )}
       <details>
         <summary>Participant roles at invocation</summary>
         {snapshot.agents.map((a) => (

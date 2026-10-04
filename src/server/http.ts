@@ -268,6 +268,43 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
         );
         return;
       }
+      const artifactRoute =
+        /^\/api\/rooms\/([a-zA-Z0-9_-]+)\/artifacts(?:\/([a-zA-Z0-9_-]+)\/(original|preview))?$/.exec(
+          url.pathname,
+        );
+      if (artifactRoute) {
+        const roomId = idSchema.parse(artifactRoute[1]);
+        if (!artifactRoute[2]) {
+          if (req.method !== 'POST') throw new AppError(405, 'Method not supported.');
+          json(
+            res,
+            201,
+            engine.uploadArtifact(
+              roomId,
+              (await body(req, 768 * 1024)) as Parameters<typeof engine.uploadArtifact>[1],
+            ),
+          );
+        } else {
+          if (req.method !== 'GET') throw new AppError(405, 'Method not supported.');
+          const versionId = idSchema.parse(artifactRoute[2]);
+          if (artifactRoute[3] === 'preview')
+            json(res, 200, engine.artifactPreview(roomId, versionId));
+          else {
+            const { reference, bytes } = engine.artifactOriginal(roomId, versionId);
+            const encoded = encodeURIComponent(reference.filename).replace(
+              /['()*]/g,
+              (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+            );
+            res.writeHead(200, {
+              'Content-Type': 'application/octet-stream',
+              'Content-Length': bytes.length,
+              'Content-Disposition': `attachment; filename="artifact-${versionId}.bin"; filename*=UTF-8''${encoded}`,
+            });
+            res.end(bytes);
+          }
+        }
+        return;
+      }
       const match =
         /^\/api\/rooms\/([a-zA-Z0-9_-]+)(?:\/(messages|control|retry|updated-synthesis|context-summaries|export|agents|connection-test|discussion-stop|settings|archive|activity))?$/.exec(
           url.pathname,
@@ -411,6 +448,12 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
               ? `\n\nHuman interjection: priority ${message.interjection.priority}; dispatch policy ${message.interjection.dispatchPolicy}; work observed at recording: ${message.interjection.queuedJobIds.length} queued, ${message.interjection.runningJobIds.length} active. Existing work retains its frozen context; no response obligations were created.`
               : '';
           const contextNotes =
+            (message.artifactReferences?.length
+              ? `\n\nHuman-granted artifact versions: ${JSON.stringify(message.artifactReferences)}.`
+              : '') +
+            (snapshot?.artifacts?.length
+              ? `\n\nFrozen supplied artifact versions: ${JSON.stringify(snapshot.artifacts)}. Only these recorded exact text versions were supplied; workspace uploads are not automatically transmitted.`
+              : '') +
             instructions +
             instructionStatus +
             interjection +
@@ -520,7 +563,7 @@ export async function serve(engine: ConversationEngine, options: HttpOptions) {
   };
 }
 
-async function body(req: IncomingMessage): Promise<unknown> {
+async function body(req: IncomingMessage, maxBytes = 64 * 1024): Promise<unknown> {
   if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] ?? ''))
     throw new AppError(415, 'Use application/json.');
   let size = 0;
@@ -528,7 +571,7 @@ async function body(req: IncomingMessage): Promise<unknown> {
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
     size += buffer.length;
-    if (size > 64 * 1024) throw new AppError(413, 'Command is too large.');
+    if (size > maxBytes) throw new AppError(413, 'Command is too large.');
     chunks.push(buffer);
   }
   try {

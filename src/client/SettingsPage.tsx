@@ -12,6 +12,7 @@ import {
 } from '../shared/contracts.js';
 import { api } from './api.js';
 import { Participants } from './Participants.js';
+import { themes, isTheme, type Theme } from './themes.js';
 
 export function SettingsPage({
   defaults,
@@ -29,8 +30,8 @@ export function SettingsPage({
 }: {
   defaults: AppSettings | null;
   room: Room | null;
-  theme: 'dark' | 'light';
-  onTheme: (theme: 'dark' | 'light') => void;
+  theme: Theme;
+  onTheme: (theme: Theme) => void;
   onLayoutReset: () => void;
   onDefaultsSaved: (settings: AppSettings) => void;
   onWorkspaceSaved: (room: Room) => void;
@@ -65,10 +66,15 @@ export function SettingsPage({
           <select
             aria-label="Theme"
             value={theme}
-            onChange={(e) => onTheme(e.target.value as 'dark' | 'light')}
+            onChange={(e) => {
+              if (isTheme(e.target.value)) onTheme(e.target.value);
+            }}
           >
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
+            {themes.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.label}
+              </option>
+            ))}
           </select>
         </label>
         <div className="layout-preference">

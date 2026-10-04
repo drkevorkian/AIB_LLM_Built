@@ -2349,3 +2349,53 @@ progress::-moz-progress-bar {
   min-width: 0;
   max-width: 100%;
 }
+.artifact-panel,
+.artifact-source,
+.artifact-choice,
+.frozen-artifacts,
+.message-artifacts {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.artifact-panel {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-top: 1px solid var(--line);
+}
+.artifact-panel-content {
+  max-height: 320px;
+  overflow: auto;
+  padding-block: 8px;
+}
+.artifact-form fieldset,
+.artifact-choice fieldset {
+  min-width: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.artifact-source pre {
+  max-height: 240px;
+  overflow: auto;
+}
+.artifact-source small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.artifact-version,
+.artifact-source,
+.artifact-choice,
+.frozen-artifacts {
+  margin-block: 8px;
+}
+.artifact-panel input[type='file'] {
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+}

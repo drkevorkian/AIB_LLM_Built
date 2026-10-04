@@ -153,6 +153,53 @@ export interface BulkWorkspaceResult {
 export const threadSettingsSchema = z.strictObject({
   title: z.string().trim().min(1).max(100),
 });
+export const maxArtifactBytes = 512 * 1024;
+export const artifactMediaSchema = z.enum([
+  'text/plain',
+  'text/markdown',
+  'application/json',
+  'image/png',
+  'image/jpeg',
+  'application/pdf',
+  'application/zip',
+  'application/octet-stream',
+]);
+export type ArtifactMedia = z.infer<typeof artifactMediaSchema>;
+export const artifactUploadSchema = z.strictObject({
+  clientId: z.string().uuid(),
+  expectedRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  artifactId: idSchema.optional(),
+  filename: z.string().min(1).max(120),
+  mediaType: artifactMediaSchema,
+  base64: z.string().max(Math.ceil(maxArtifactBytes / 3) * 4),
+});
+export type ArtifactUploadInput = z.infer<typeof artifactUploadSchema>;
+export interface ArtifactReference {
+  artifactId: string;
+  versionId: string;
+  version: number;
+  filename: string;
+  mediaType: ArtifactMedia;
+  byteSize: number;
+  sha256: string;
+  createdAt: string;
+  previewKind: 'text' | 'archive' | 'metadata';
+  textCharacters?: number;
+}
+export interface ArtifactVersion extends ArtifactReference {
+  clientId: string;
+  commandHash: string;
+}
+export interface ArtifactContext extends ArtifactReference {
+  sourceMessageId: string;
+  text: string;
+}
+export interface ArtifactPreview {
+  reference: ArtifactReference;
+  text?: string;
+  truncated: boolean;
+  entries?: { filename: string; byteSize: number; sha256: string }[];
+}
 export type ThreadSettingsInput = z.infer<typeof threadSettingsSchema>;
 export const sendSchema = z.strictObject({
   clientId: z.string().uuid(),
@@ -191,6 +238,11 @@ export const sendSchema = z.strictObject({
         .max(50)
         .refine((ids) => new Set(ids).size === ids.length),
     })
+    .optional(),
+  artifactVersionIds: z
+    .array(idSchema)
+    .max(4)
+    .refine((ids) => new Set(ids).size === ids.length)
     .optional(),
 });
 export const contextSummarySchema = z.strictObject({
@@ -311,6 +363,7 @@ export interface Message {
   createdAt: string;
   clientId?: string;
   commandHash?: string;
+  artifactReferences?: ArtifactReference[];
   /** Human-authored control record; observed IDs do not revise existing obligations. */
   interjection?: {
     priority: 'normal' | 'urgent';
@@ -335,6 +388,7 @@ export interface ContextSnapshot {
   collection?: CollectionContext;
   memory?: SummaryContext;
   delivery?: ContextDelivery;
+  artifacts?: ArtifactContext[];
 }
 export interface SummarySource {
   id: string;
@@ -513,6 +567,7 @@ export interface Room {
   contextSummaries?: ContextSummary[];
   contextCursors?: ContextCursor[];
   contextDeliveryNumber?: number;
+  artifactVersions?: ArtifactVersion[];
   threads: Thread[];
   messages: Message[];
   requests: Request[];

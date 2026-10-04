@@ -35,10 +35,11 @@ export class RoomStore {
       opened = new DatabaseSync(path, { timeout: 1000 });
       this.db = opened;
       const version = Number(this.db.prepare('PRAGMA user_version').get()?.user_version);
-      if (version > 2) throw new Error('Database schema is newer than this application.');
+      if (version > 3) throw new Error('Database schema is newer than this application.');
       this.db.exec(`
         PRAGMA journal_mode = WAL;
         PRAGMA synchronous = FULL;
+        PRAGMA foreign_keys = ON;
         BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS rooms (
           id TEXT PRIMARY KEY,
@@ -50,7 +51,12 @@ export class RoomStore {
           payload TEXT NOT NULL,
           initialized INTEGER NOT NULL DEFAULT 0 CHECK (initialized IN (0, 1))
         ) STRICT;
-        PRAGMA user_version = 2;
+        CREATE TABLE IF NOT EXISTS artifact_bytes (
+          version_id TEXT PRIMARY KEY,
+          room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+          bytes BLOB NOT NULL
+        ) STRICT;
+        PRAGMA user_version = 3;
         COMMIT;
       `);
       this.db
@@ -94,6 +100,22 @@ export class RoomStore {
     this.db
       .prepare('INSERT INTO rooms (id, revision, payload) VALUES (?, ?, ?)')
       .run(room.id, room.revision, JSON.stringify(room));
+  }
+
+  /** Called inside the metadata's room mutation so both writes commit or roll back together. */
+  putArtifactBytes(roomId: string, versionId: string, bytes: Uint8Array): void {
+    if (!this.db.isTransaction) throw new Error('Artifact writes require a room transaction.');
+    this.db
+      .prepare('INSERT INTO artifact_bytes(version_id, room_id, bytes) VALUES(?, ?, ?)')
+      .run(versionId, roomId, bytes);
+  }
+
+  artifactBytes(roomId: string, versionId: string): Buffer {
+    const row = this.db
+      .prepare('SELECT bytes FROM artifact_bytes WHERE room_id = ? AND version_id = ?')
+      .get(roomId, versionId);
+    if (!row) throw new AppError(409, 'Original artifact bytes are unavailable.');
+    return Buffer.from(row.bytes as Uint8Array);
   }
 
   delete(id: string): void {

@@ -1,5 +1,7 @@
 # 0008 — Message presentation and copying
 
+The v0.22.0 artifact extension is specified in [ADR 0023](0023-versioned-artifacts-and-opposite-themes.md): human-uploaded original bytes, authenticated inert downloads, bounded literal text previews and checked ZIP manifests, with metadata-only image/PDF/binary previews. Artifact text is escaped and never treated as executable or fetched content. Full-text provider inclusion requires a fresh explicit human version selection; native binary inclusion and inline attachment renderers remain unsupported.
+
 ## Boundary
 
 v0.7 treats message bodies from humans, models, and coordinator actions as untrusted presentation data. Stored bodies, invocation snapshots, response sets, author bindings, search input/previews, and exports retain their original strings. Rendering and clipboard writes cannot dispatch agents, change routing, execute tools, or mutate workspace data. Archived history supports the same reading and copying controls.
