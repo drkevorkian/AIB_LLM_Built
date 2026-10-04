@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   defaultAppSettings,
   hasPendingWork,
@@ -321,12 +321,13 @@ function ProviderLimitsForm({
 }) {
   const [value, setValue] = useState({ ...settings.providerConcurrency });
   const [dirty, setDirty] = useState(false);
+  const edited = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
   useEffect(() => {
-    if (!dirty) setValue({ ...settings.providerConcurrency });
-  }, [settings.providerConcurrency, dirty]);
+    if (!edited.current) setValue({ ...settings.providerConcurrency });
+  }, [settings.providerConcurrency]);
   async function save(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -334,6 +335,7 @@ function ProviderLimitsForm({
     setResult('');
     try {
       const saved = await api.saveProviderConcurrency(value);
+      edited.current = false;
       onSaved(saved);
       setDirty(false);
       setResult('Provider request limits saved.');
@@ -367,6 +369,7 @@ function ProviderLimitsForm({
               max={maxConcurrentRequests}
               value={value[provider]}
               onChange={(e) => {
+                edited.current = true;
                 setValue((previous) => ({ ...previous, [provider]: Number(e.target.value) }));
                 setDirty(true);
                 setResult('');

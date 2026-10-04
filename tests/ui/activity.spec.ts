@@ -83,7 +83,7 @@ test('paused queues expose durable order and prerequisites, navigate exact safe 
   const b = page
     .locator('.agent-card')
     .filter({ has: page.getByRole('button', { name: 'Configure AI B', exact: true }) });
-  await b.locator('summary').click();
+  await b.locator('.participant-queue > summary').click();
   await expect(b).toContainText('Queued generations (2)');
   const queued = b.locator('.queue-list > li');
   await expect(queued).toHaveCount(2);
@@ -97,7 +97,7 @@ test('paused queues expose durable order and prerequisites, navigate exact safe 
   const a = page
     .locator('.agent-card')
     .filter({ has: page.getByRole('button', { name: 'Configure AI A', exact: true }) });
-  await a.locator('summary').click();
+  await a.locator('.participant-queue > summary').click();
   await expect(a).toContainText('Synthesis · Waiting for answers');
   await expect(a).toContainText('0 / 1 required completed answers · all');
   await expect(a).toContainText('AI B: queued');
@@ -115,7 +115,7 @@ test('paused queues expose durable order and prerequisites, navigate exact safe 
   expect(await f.record()).toEqual(before);
   await page.reload();
   await expect(page.getByRole('heading', { name: f.title, exact: true, level: 1 })).toBeVisible();
-  await b.locator('summary').click();
+  await b.locator('.participant-queue > summary').click();
   await expect(b).toContainText('Queued generations (2)');
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
@@ -129,7 +129,7 @@ test('paused queues expose durable order and prerequisites, navigate exact safe 
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(b).toContainText('No queued generations.');
   await expect(b.locator('.queue-list > li')).toHaveCount(0);
-  await a.locator('summary').click();
+  await a.locator('.participant-queue > summary').click();
   await expect(a).not.toContainText('Response prerequisites');
 });
 
@@ -142,13 +142,13 @@ test('active requests hold participant queues and failed prerequisites clear onl
   const b = page
     .locator('.agent-card')
     .filter({ has: page.getByRole('button', { name: 'Configure AI B', exact: true }) });
-  await b.locator('summary').click();
+  await b.locator('.participant-queue > summary').click();
   await expect(b).toContainText('Running · Answer');
   await expect(b).toContainText('Participant has an active request');
   const a = page
     .locator('.agent-card')
     .filter({ has: page.getByRole('button', { name: 'Configure AI A', exact: true }) });
-  await a.locator('summary').click();
+  await a.locator('.participant-queue > summary').click();
   await expect(a).toContainText('Synthesis · Waiting for answers');
   await expect(a).toContainText('Synthesis · Unresolved responses', { timeout: 10000 });
   await expect(a).toContainText('AI B: failed');
@@ -182,7 +182,7 @@ test('failed inspection can recover and a delayed old-workspace snapshot cannot 
   const b = page
     .locator('.agent-card')
     .filter({ has: page.getByRole('button', { name: 'Configure AI B', exact: true }) });
-  await b.locator('summary').click();
+  await b.locator('.participant-queue > summary').click();
   await expect(b).toContainText('Queued generations (1)');
   const pattern = `**/api/rooms/${f.id}/activity`;
   await page.route(pattern, (route) =>
@@ -216,7 +216,7 @@ test('failed inspection can recover and a delayed old-workspace snapshot cannot 
     release();
     const a = page.locator('.agent-card');
     await expect(a).toHaveCount(1);
-    await a.locator('summary').click();
+    await a.locator('.participant-queue > summary').click();
     await expect(a).toContainText('No queued generations.');
     await expect(a).not.toContainText('Old workspace queue');
     await expect(

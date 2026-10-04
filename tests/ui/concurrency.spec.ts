@@ -189,7 +189,7 @@ test('workspace quota explains queue holds and blocks settings edits while work 
     await f.send(f.room.agents.map((agent) => agent.id));
     await expect.poll(() => provider.responses.length).toBe(1);
     const b = card(page, 'AI B');
-    await b.locator('summary').click();
+    await b.locator('.participant-queue > summary').click();
     await expect(b).toContainText('Workspace request limit is full');
     await expect(b).toContainText('1 / 1 workspace slots occupied');
     await expect(b).toContainText('1 / 4 provider slots occupied');
@@ -259,7 +259,7 @@ test('provider quota includes another workspace probe and follows capacity edits
     await expect.poll(() => provider.responses.length).toBe(1);
     await f.send([f.room.agents[1]!.id, f.room.agents[2]!.id]);
     const b = card(page, 'AI B');
-    await b.locator('summary').click();
+    await b.locator('.participant-queue > summary').click();
     await expect(b).toContainText('Provider request limit is full');
     await expect(b).toContainText('0 / 4 workspace slots occupied');
     await expect(b).toContainText('1 / 1 provider slots occupied');
@@ -273,7 +273,7 @@ test('provider quota includes another workspace probe and follows capacity edits
     await expect.poll(() => provider.responses.length).toBe(2);
     await expect(b).toContainText('Running · Answer');
     const c = card(page, 'AI C');
-    await c.locator('summary').click();
+    await c.locator('.participant-queue > summary').click();
     await expect(c).toContainText('Provider request limit is full');
     await expect(c).toContainText('2 / 2 provider slots occupied');
     provider.finish(0);
@@ -301,7 +301,11 @@ test('native bounds and failed provider saves retain the form and policy until a
   const input = page.getByLabel('Simulation request limit', { exact: true });
   const button = page.getByRole('button', { name: 'Save provider limits', exact: true });
   await input.fill('0');
+  await expect(input).toHaveValue('0');
+  await expect(button).toBeEnabled();
+  expect(await input.evaluate((node: HTMLInputElement) => node.validity.valid)).toBe(false);
   await button.click();
+  await expect(input).toHaveValue('0');
   expect(await input.evaluate((node: HTMLInputElement) => node.validity.valid)).toBe(false);
   expect((await f.settings()).providerConcurrency.simulated).toBe(4);
   await input.fill('1');
